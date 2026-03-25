@@ -1,8 +1,5 @@
 FROM php:8.2-apache
 
-# Enable the extensions this app relies on.
-RUN docker-php-ext-install curl
-
 # Serve the public folder as the web root.
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 
