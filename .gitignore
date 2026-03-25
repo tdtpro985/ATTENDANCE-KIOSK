@@ -35,6 +35,9 @@ yarn-error.*
 .env*.local
 backend-php/.env
 backend-php/storage/
+.env
+storage/*.json
+*.log
 
 # typescript
 *.tsbuildinfo
