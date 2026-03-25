@@ -25,6 +25,7 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+.npm-cache/
 
 # macOS
 .DS_Store
@@ -32,6 +33,8 @@ yarn-error.*
 
 # local env files
 .env*.local
+backend-php/.env
+backend-php/storage/
 
 # typescript
 *.tsbuildinfo
