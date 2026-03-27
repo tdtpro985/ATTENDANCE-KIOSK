@@ -102,7 +102,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   const formattedTime = currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const formattedDate = currentTime.toDateString();
   const isClockingOut = attendanceAction === 'clock_out';
-  const cameraFrameSize = Math.min(width * (qrVerified ? 0.62 : 0.78), qrVerified ? 260 : 320);
+  const cameraFrameSize = Math.min(width * (qrVerified ? 0.72 : 0.78), qrVerified ? 310 : 320);
 
   const showModal = useCallback(
     (type: 'success' | 'error' | 'info' | 'warning', title: string, message: string, hint: string) => {
@@ -252,7 +252,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   };
 
   const handleBarcodeScanned = async (event: any) => {
-    if (qrVerified || isVerifying) return;
+    if (isVerifying) return;
 
     const data: string | undefined = event?.data;
     if (!data) return;
@@ -285,7 +285,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         existingSession
           ? 'This user already has an active clock-in. Look at the camera and press CLOCK OUT to finish logout.'
           : 'Look at the camera and press CLOCK IN to verify your face and record your attendance.',
-        ''
+        qrVerified ? 'A new QR scan automatically switches to the next user.' : ''
       );
     } catch (e: any) {
       console.log('[QR] Validation error', e);
@@ -631,11 +631,6 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
                 ? 'Verified attendance will be saved locally first and synced later.'
                 : 'Attendance will be inserted into the database immediately.'}
             </Text>
-            {offlineModeEnabled ? (
-              <Text style={styles.offlineQueueHint}>
-                Wait to Sync: {pendingSyncCount} {pendingSyncCount === 1 ? 'record' : 'records'}
-              </Text>
-            ) : null}
           </View>
           <View style={styles.offlineControls}>
             {isSavingOfflineMode ? <ActivityIndicator size="small" color="#F27121" /> : null}
@@ -675,18 +670,19 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
           </View>
         </View>
 
-        {qrVerified ? (
-          <View style={styles.statusSummaryCard}>
-            <Text style={styles.statusSummaryTitle}>{isClockingOut ? 'Ready to Clock Out' : 'Ready to Clock In'}</Text>
-            <Text style={styles.statusSummaryText}>
-              {isClockingOut && clockInTime
-                ? `${welcomeName ?? 'This user'} is currently clocked in since ${clockInTime}.`
-                : `${welcomeName ?? 'This user'} has been verified by QR and must face-verify to continue.`}
-            </Text>
-          </View>
-        ) : null}
-
         <View style={styles.footerTimeBlock}>
+          {qrVerified ? (
+            <View
+              style={[
+                styles.actionBadge,
+                { backgroundColor: isClockingOut ? '#fde9e6' : '#fff0df', borderColor: isClockingOut ? '#d96b5f' : '#F27121' },
+              ]}
+            >
+              <Text style={[styles.actionBadgeText, { color: isClockingOut ? '#b13d32' : '#c76417' }]}>
+                {isClockingOut ? 'CLOCK OUT' : 'CLOCK IN'}
+              </Text>
+            </View>
+          ) : null}
           <Text style={styles.footerDate}>{formattedDate}</Text>
           <Text style={styles.footerTime}>{formattedTime}</Text>
         </View>
@@ -866,12 +862,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
-  offlineQueueHint: {
-    color: '#F27121',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 6,
-  },
   offlineControls: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -933,26 +923,19 @@ const styles = StyleSheet.create({
   stepIconDone: { color: '#2ecc71', borderColor: '#2ecc71' },
   stepSpinner: { marginRight: 8 },
   stepText: { fontSize: 13, marginLeft: 6, fontWeight: '600', color: '#6f7b89' },
-  statusSummaryCard: {
-    marginBottom: 16,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-  },
-  statusSummaryTitle: {
-    color: '#1f2a37',
-    fontWeight: '700',
-    fontSize: 16,
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  statusSummaryText: {
-    color: '#5b6674',
-    textAlign: 'center',
-    fontSize: 13,
-    lineHeight: 20,
-  },
   footerTimeBlock: { alignItems: 'center', marginBottom: 20 },
+  actionBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+  actionBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
   footerDate: { fontSize: 13, color: '#6f7b89' },
   footerTime: { fontSize: 40, fontWeight: 'bold', color: '#1f2a37' },
   bigButton: {
