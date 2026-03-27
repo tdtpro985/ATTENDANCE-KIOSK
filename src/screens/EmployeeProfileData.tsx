@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { BACKEND_URL } from '../config/backend';
 
 type Props = {
   onBack: () => void;
@@ -28,11 +29,9 @@ export default function EmployeeProfileData({ onBack }: Props) {
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
 
   useEffect(() => {
-    const API_BASE_URL = 'http://192.168.15.10:8000';
-
     const fetchEmployees = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/employees.php`);
+        const response = await fetch(`${BACKEND_URL}/employees.php`);
         const payload = await response.json();
         if (payload?.ok && Array.isArray(payload?.data)) {
           console.log('employees.php payload', payload);

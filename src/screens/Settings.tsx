@@ -14,9 +14,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BACKEND_URL } from '../config/backend';
 import { OFFLINE_MODE_KEY } from '../utils/offlineAttendance';
 
-const BACKEND_URL = 'http://192.168.15.10:8000';
 const TOUCHLESS_SETTING_KEY = 'settings_touchless_enabled';
 
 type Props = {

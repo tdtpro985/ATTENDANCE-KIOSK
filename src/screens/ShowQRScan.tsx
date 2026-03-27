@@ -14,11 +14,10 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BACKEND_URL } from '../config/backend';
 import { OFFLINE_MODE_KEY, enqueueOfflineAttendance, getOfflineAttendanceQueue } from '../utils/offlineAttendance';
 
 const { width } = Dimensions.get('window');
-
-const BACKEND_URL = 'http://192.168.15.10:8000';
 const ATTENDANCE_SESSIONS_KEY = 'attendance_active_sessions';
 const TOUCHLESS_SETTING_KEY = 'settings_touchless_enabled';
 
@@ -103,6 +102,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   const formattedTime = currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const formattedDate = currentTime.toDateString();
   const isClockingOut = attendanceAction === 'clock_out';
+  const cameraFrameSize = Math.min(width * (qrVerified ? 0.62 : 0.78), qrVerified ? 260 : 320);
 
   const showModal = useCallback(
     (type: 'success' | 'error' | 'info' | 'warning', title: string, message: string, hint: string) => {
@@ -598,8 +598,8 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         <View style={styles.headerSpacer} />
       </View>
 
-      <View style={[styles.centerStage, styles.centerStageCentered]}>
-        <View style={styles.cameraWrapper}>
+      <View style={[styles.centerStage, qrVerified ? styles.centerStageCompact : styles.centerStageCentered]}>
+        <View style={[styles.cameraWrapper, { width: cameraFrameSize, height: cameraFrameSize }]}>
           <CameraView
             ref={cameraRef}
             style={styles.camera}
@@ -620,7 +620,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         </View>
       </View>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, qrVerified && styles.footerCompact]}>
         {qrVerified ? <Text style={styles.welcomeText}>Welcome, {welcomeName ?? 'Employee'}!</Text> : null}
 
         <View style={styles.offlineToolsCard}>
@@ -793,9 +793,13 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 44 },
   centerStage: { flex: 1, minHeight: 0 },
   centerStageCentered: { justifyContent: 'center', alignItems: 'center' },
+  centerStageCompact: {
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingTop: 6,
+    paddingBottom: 10,
+  },
   cameraWrapper: {
-    width: width * 0.78,
-    height: width * 0.78,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 4,
@@ -824,6 +828,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 5,
     backgroundColor: '#f7f4f0',
+  },
+  footerCompact: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 22,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
   welcomeText: {
     textAlign: 'center',
