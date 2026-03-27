@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BACKEND_URL } from '../config/backend';
 import { OFFLINE_MODE_KEY, enqueueOfflineAttendance, getOfflineAttendanceQueue } from '../utils/offlineAttendance';
+import { refreshOfflineUserCache, resolveOfflineUserFromQr } from '../utils/offlineUsers';
 
 const { width } = Dimensions.get('window');
 const ATTENDANCE_SESSIONS_KEY = 'attendance_active_sessions';
@@ -159,6 +160,12 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     refreshPendingSyncCount();
   }, [refreshPendingSyncCount]);
 
+  useEffect(() => {
+    refreshOfflineUserCache().catch(() => {
+      console.log('[Offline] Could not refresh offline user cache');
+    });
+  }, []);
+
   const getStoredSession = useCallback(async (userId: string): Promise<StoredAttendanceSession | null> => {
     try {
       const raw = await AsyncStorage.getItem(ATTENDANCE_SESSIONS_KEY);
@@ -218,38 +225,55 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     }
   }, []);
 
-  const resolveUserFromQr = async (qrData: string): Promise<ResolvedUser> => {
-    const response = await fetch(`${BACKEND_URL}/resolve_qr.php?qr=${encodeURIComponent(qrData)}`, {
-      headers: {
-        Accept: 'application/json',
-        'ngrok-skip-browser-warning': 'true',
-      },
-    });
-    const responseText = await response.text();
-    console.log('[QR] Raw response', response.status, responseText?.slice?.(0, 200));
-
-    let payload: any = {};
+  const resolveUserFromQr = useCallback(async (qrData: string): Promise<ResolvedUser> => {
     try {
-      payload = responseText ? JSON.parse(responseText) : {};
-    } catch (parseError) {
-      console.error('[QR] JSON parse error:', parseError);
-      throw new Error(`Server returned invalid response. Status: ${response.status}`);
-    }
+      const response = await fetch(`${BACKEND_URL}/resolve_qr.php?qr=${encodeURIComponent(qrData)}`, {
+        headers: {
+          Accept: 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      const responseText = await response.text();
+      console.log('[QR] Raw response', response.status, responseText?.slice?.(0, 200));
 
-    if (!response.ok) {
-      throw new Error(payload?.message || `QR validation failed. Status: ${response.status}`);
-    }
+      let payload: any = {};
+      try {
+        payload = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        console.error('[QR] JSON parse error:', parseError);
+        throw new Error(`Server returned invalid response. Status: ${response.status}`);
+      }
 
-    if (!payload?.ok || !payload?.user?.log_id) {
-      throw new Error(payload?.message || 'QR not recognized');
-    }
+      if (!response.ok) {
+        throw new Error(payload?.message || `QR validation failed. Status: ${response.status}`);
+      }
 
-    return {
-      userId: String(payload.user.log_id),
-      username: String(payload.user.username || ''),
-      name: payload.user.name ?? null,
-    };
-  };
+      if (!payload?.ok || !payload?.user?.log_id) {
+        throw new Error(payload?.message || 'QR not recognized');
+      }
+
+      return {
+        userId: String(payload.user.log_id),
+        username: String(payload.user.username || ''),
+        name: payload.user.name ?? null,
+      };
+    } catch (error) {
+      if (!offlineModeEnabled) {
+        throw error;
+      }
+
+      const cachedUser = await resolveOfflineUserFromQr(qrData);
+      if (!cachedUser) {
+        throw new Error('Offline mode needs a previously cached employee list for this QR code.');
+      }
+
+      return {
+        userId: cachedUser.userId,
+        username: cachedUser.username,
+        name: cachedUser.name ?? null,
+      };
+    }
+  }, [offlineModeEnabled]);
 
   const handleBarcodeScanned = async (event: any) => {
     if (isVerifying) return;
@@ -283,9 +307,13 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         'success',
         'QR Code Verified',
         existingSession
-          ? 'This user already has an active clock-in. Look at the camera and press CLOCK OUT to finish logout.'
+          ? offlineModeEnabled
+            ? 'This user already has an active clock-in. Capture the face photo and save the clock out offline.'
+            : 'This user already has an active clock-in. Look at the camera and press CLOCK OUT to finish logout.'
+          : offlineModeEnabled
+          ? 'QR recognized. Capture the face photo and this attendance will be saved to offline sync.'
           : 'Look at the camera and press CLOCK IN to verify your face and record your attendance.',
-        qrVerified ? 'A new QR scan automatically switches to the next user.' : ''
+        'A new QR scan automatically switches to the next user.'
       );
     } catch (e: any) {
       console.log('[QR] Validation error', e);
@@ -376,8 +404,18 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
       base64: false,
     });
     if (!photo?.uri) throw new Error('No image captured');
+    if (offlineModeEnabled) {
+      return {
+        ok: true,
+        verified: true,
+        offlineCaptured: true,
+        message: 'Face photo captured offline.',
+        photoUri: photo.uri,
+      };
+    }
+
     return verifyFace(photo.uri);
-  }, []);
+  }, [offlineModeEnabled]);
 
   const recordAttendance = useCallback(async (action: 'clock_in' | 'clock_out') => {
     const userId = await AsyncStorage.getItem('userId');
@@ -514,8 +552,8 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
             : 'Clock Out Complete',
           offlineModeEnabled
             ? action === 'clock_in'
-              ? 'Face verified. This attendance was saved offline. Open LIST OFFLINE and press SYNC NOW when ready.'
-              : 'Face verified. This clock out was saved offline. Open LIST OFFLINE and press SYNC NOW when ready.'
+              ? 'Face captured. This attendance was saved offline. Open LIST OFFLINE and press SYNC NOW when ready.'
+              : 'Face captured. This clock out was saved offline. Open LIST OFFLINE and press SYNC NOW when ready.'
             : action === 'clock_in'
             ? result?.message || 'Face verified. Attendance recorded. The scanner is ready for the next user.'
             : result?.message || 'Face verified. Logout recorded. The scanner is ready for the next user.',
@@ -533,7 +571,14 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
       }
     } catch (e: any) {
       console.error('Verification error:', e);
-      showModal('error', 'Connection Error', e?.message || 'Please try again.', 'Check your internet connection');
+      showModal(
+        'error',
+        offlineModeEnabled ? 'Offline Mode Error' : 'Connection Error',
+        e?.message || 'Please try again.',
+        offlineModeEnabled
+          ? 'Connect once to refresh employee QR cache if this device has never seen that QR before.'
+          : 'Check your internet connection'
+      );
     } finally {
       setIsVerifying(false);
     }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BACKEND_URL } from '../config/backend';
+import { refreshOfflineUserCache } from '../utils/offlineUsers';
 
 type Props = {
   onBack: () => void;
@@ -36,6 +37,7 @@ export default function EmployeeProfileData({ onBack }: Props) {
         if (payload?.ok && Array.isArray(payload?.data)) {
           console.log('employees.php payload', payload);
           setEmployees(payload.data);
+          refreshOfflineUserCache().catch(() => undefined);
           setStatusText(payload.data.length ? 'Employees loaded' : 'No employees found');
         } else {
           console.log('employees.php error payload', payload);
