@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // Only return employees that have a matching account via log_id
-$select = 'emp_id,name,role,dept_id,log_id,accounts!inner(log_id,username,qr_code,face),departments(name)';
+$select = 'emp_id,name,role,dept_id,log_id,accounts!inner(log_id,username,qr_code,profile_picture,face),departments(name)';
 $path = "rest/v1/employees?select={$select}&order=emp_id";
 
 [$status, $data, $err] = supabase_request('GET', $path);
