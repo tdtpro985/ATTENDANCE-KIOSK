@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Image, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BACKEND_URL } from '../config/backend';
 import { refreshOfflineUserCache } from '../utils/offlineUsers';
 
@@ -18,34 +18,44 @@ export default function EmployeeProfileData({ onBack }: Props) {
       log_id: number;
       username: string | null;
       qr_code?: string | null;
-      face?: string | null;
+      profile_picture?: string | null;
     } | null;
     departments?: {
       name?: string | null;
     } | null;
   };
 
-  const [statusText, setStatusText] = useState('Loading employees...');
-  const [isLoading, setIsLoading] = useState(true);
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [searchText, setSearchText] = useState('');
+  const [debouncedSearchText, setDebouncedSearchText] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Debounce search text to improve performance
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchText(searchText);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchText]);
 
   useEffect(() => {
     const fetchEmployees = async () => {
       try {
+        setIsLoading(true);
         const response = await fetch(`${BACKEND_URL}/employees.php`);
         const payload = await response.json();
         if (payload?.ok && Array.isArray(payload?.data)) {
           console.log('employees.php payload', payload);
           setEmployees(payload.data);
-          refreshOfflineUserCache().catch(() => undefined);
-          setStatusText(payload.data.length ? 'Employees loaded' : 'No employees found');
+          // Run cache refresh in background to avoid blocking UI
+          setTimeout(() => {
+            refreshOfflineUserCache().catch(() => undefined);
+          }, 100);
         } else {
           console.log('employees.php error payload', payload);
-          setStatusText(`Load failed (status ${payload?.status ?? response.status})`);
         }
       } catch (error) {
         console.log('employees.php fetch error', error);
-        setStatusText('Connection error: check API URL and PHP server');
       } finally {
         setIsLoading(false);
       }
@@ -54,35 +64,54 @@ export default function EmployeeProfileData({ onBack }: Props) {
     fetchEmployees();
   }, []);
 
+  const filteredEmployees = useMemo(() => {
+    return employees
+      .filter(emp => 
+        emp.name.toLowerCase().includes(debouncedSearchText.toLowerCase()) ||
+        (emp.role && emp.role.toLowerCase().includes(debouncedSearchText.toLowerCase()))
+      )
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [employees, debouncedSearchText]);
+
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <Pressable onPress={onBack}>
         <Text style={styles.backText}>Back</Text>
       </Pressable>
       <Text style={styles.title}>Employee Profile Data</Text>
-      <View style={styles.card}>
-        <Text style={styles.label}>Database</Text>
-        <View style={styles.connectionRow}>
-          {isLoading ? <ActivityIndicator color="#c8742e" /> : null}
-          <Text style={styles.value}>{statusText}</Text>
-        </View>
-      </View>
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Search by name or role..."
+        value={searchText}
+        onChangeText={setSearchText}
+      />
 
-      <ScrollView contentContainerStyle={styles.list}>
-        {employees.map((emp) => (
-          <View key={emp.emp_id} style={styles.employeeCard}>
-            <Text style={styles.employeeName}>{emp.name}</Text>
-            {emp.accounts?.face ? (
-              <Image source={{ uri: emp.accounts.face }} style={styles.faceImage} />
-            ) : null}
-            <Text style={styles.employeeMeta}>Role: {emp.role ?? 'N/A'}</Text>
-            <Text style={styles.employeeMeta}>
-              Dept: {emp.departments?.name ?? 'N/A'}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
-    </View>
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#c8742e" />
+          <Text style={styles.loadingText}>Loading employees...</Text>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.list}>
+          {filteredEmployees.map((emp) => (
+            <View key={emp.emp_id} style={styles.employeeCard}>
+              <Text style={styles.employeeName}>{emp.name}</Text>
+              {emp.accounts?.profile_picture ? (
+                <Image 
+                  source={{ uri: emp.accounts.profile_picture }} 
+                  style={styles.profileImage}
+                  resizeMode="cover"
+                />
+              ) : null}
+              <Text style={styles.employeeMeta}>Role: {emp.role ?? 'N/A'}</Text>
+              <Text style={styles.employeeMeta}>
+                Dept: {emp.departments?.name ?? 'N/A'}
+              </Text>
+            </View>
+          ))}
+        </ScrollView>
+      )}
+    </SafeAreaView>
   );
 }
 
@@ -90,7 +119,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 28,
-    paddingTop: 18,
+    paddingTop: 8,
     backgroundColor: '#ffffff',
   },
   backText: {
@@ -104,31 +133,27 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#c8742e',
   },
-  card: {
-    marginTop: 24,
-    borderRadius: 24,
-    backgroundColor: 'transparent',
+  searchInput: {
+    marginTop: 18,
     borderWidth: 2,
     borderColor: '#c8742e',
-    padding: 22,
-    gap: 10,
-  },
-  connectionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  label: {
-    fontSize: 13,
-    letterSpacing: 0.6,
-    color: '#c8742e',
-    textTransform: 'uppercase',
-    fontWeight: '600',
-  },
-  value: {
-    fontSize: 18,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 16,
     color: '#1f2a37',
-    fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 50,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#5b6674',
+    textAlign: 'center',
   },
   list: {
     paddingTop: 18,
@@ -142,7 +167,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
   },
-  faceImage: {
+  profileImage: {
     width: 96,
     height: 96,
     borderRadius: 12,

@@ -333,7 +333,7 @@ export default function Settings({ onBack }: Props) {
 
           <SettingRow
             title="Offline Mode"
-            description="Save verified attendance locally first and insert it into the database only when you press sync"
+            description="Use local QR and face capture first, then insert attendance into the database only when you press sync"
             action={
               <View style={styles.switchWrap}>
                 {isSavingOfflineMode ? <ActivityIndicator size="small" color="#cf8d8f" /> : null}

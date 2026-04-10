@@ -1,14 +1,20 @@
 import { StatusBar } from 'expo-status-bar';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ShowQRScan from './src/screens/ShowQRScan';
 import EmployeeProfileData from './src/screens/EmployeeProfileData';
 import Settings from './src/screens/Settings';
 import OfflineSync from './src/screens/OfflineSync';
+import { refreshOfflineUserCache } from './src/utils/offlineUsers';
 
 export default function App() {
   const [screen, setScreen] = useState<'home' | 'qr' | 'profile' | 'settings' | 'offline'>('home');
+
+  useEffect(() => {
+    refreshOfflineUserCache().catch(() => undefined);
+  }, []);
+
   const ScreenComponent = useMemo(() => {
     if (screen === 'qr') return <ShowQRScan onBack={() => setScreen('home')} onOpenOffline={() => setScreen('offline')} />;
     if (screen === 'profile') return <EmployeeProfileData onBack={() => setScreen('home')} />;
@@ -19,10 +25,10 @@ export default function App() {
 
   if (screen !== 'home') {
     return (
-      <SafeAreaView style={styles.appShell}>
+      <>
         {ScreenComponent}
         <StatusBar style="auto" />
-      </SafeAreaView>
+      </>
     );
   }
 
