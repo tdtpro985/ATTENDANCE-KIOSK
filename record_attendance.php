@@ -4,7 +4,7 @@
  *
  * POST JSON: { "user_id": "<log_id>", "action": "clock_in" | "clock_out" }
  * - clock_in: inserts row with emp_id, timein, date, timeout=NULL
- * - clock_out: updates the latest open row for emp_id (where timeout IS NULL) with timeout=now()
+ * - clock_out: updates today's row for emp_id (where timeout IS NULL) with timeout=now()
  *
  * GET (for clients that can't read attendance due to RLS):
  *  - ?emp_id=<emp_id> OR ?user_id=<log_id>
@@ -138,6 +138,44 @@ $today = date('Y-m-d');
 $nowTime = date('H:i:s');
 
 if ($action === 'clock_in') {
+    // If already clocked in today, return the existing record instead of failing insert.
+    [$status, $rows, $err] = supabase_request(
+        'GET',
+        "rest/v1/attendance?emp_id=eq.{$emp_id}&date=eq.{$today}&order=att_id.desc&limit=1&select=att_id,timein,timeout,date"
+    );
+    if ($err) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'message' => 'Database error', 'detail' => $err]);
+        exit;
+    }
+    if ($status === 200 && is_array($rows) && count($rows) > 0) {
+        $row = $rows[0];
+        $existingTimein = $row['timein'] ?? null;
+        $existingTimeout = $row['timeout'] ?? null;
+        if ($existingTimein !== null && $existingTimeout === null) {
+            echo json_encode([
+                'ok' => true,
+                'message' => 'Already clocked in',
+                'emp_id' => $emp_id,
+                'date' => $today,
+                'timein' => $existingTimein,
+            ]);
+            exit;
+        }
+        if ($existingTimein !== null && $existingTimeout !== null) {
+            http_response_code(400);
+            echo json_encode([
+                'ok' => false,
+                'message' => 'Already clocked out for today',
+                'emp_id' => $emp_id,
+                'date' => $today,
+                'timein' => $existingTimein,
+                'timeout' => $existingTimeout,
+            ]);
+            exit;
+        }
+    }
+
     [$status, $result, $err] = supabase_insert('attendance', [
         'emp_id' => $emp_id,
         'timein' => $nowTime,
@@ -150,6 +188,27 @@ if ($action === 'clock_in') {
         exit;
     }
     if ($status < 200 || $status >= 300) {
+        // If insert failed (e.g., unique constraint), try to return existing row.
+        [$s2, $rows2, $e2] = supabase_request(
+            'GET',
+            "rest/v1/attendance?emp_id=eq.{$emp_id}&date=eq.{$today}&order=att_id.desc&limit=1&select=att_id,timein,timeout,date"
+        );
+        if (!$e2 && $s2 === 200 && is_array($rows2) && count($rows2) > 0) {
+            $row2 = $rows2[0];
+            $existingTimein = $row2['timein'] ?? null;
+            $existingTimeout = $row2['timeout'] ?? null;
+            if ($existingTimein !== null && $existingTimeout === null) {
+                echo json_encode([
+                    'ok' => true,
+                    'message' => 'Already clocked in',
+                    'emp_id' => $emp_id,
+                    'date' => $today,
+                    'timein' => $existingTimein,
+                ]);
+                exit;
+            }
+        }
+
         http_response_code($status);
         echo json_encode([
             'ok' => false,
@@ -169,10 +228,10 @@ if ($action === 'clock_in') {
     exit;
 }
 
-// clock_out: find the latest open row for this emp, then set timeout
+// clock_out: find today's row for this emp with timeout IS NULL, then set timeout
 [$status, $rows, $err] = supabase_request(
     'GET',
-    "rest/v1/attendance?emp_id=eq.{$emp_id}&timeout=is.null&order=date.desc,att_id.desc&limit=1&select=att_id,date"
+    "rest/v1/attendance?emp_id=eq.{$emp_id}&date=eq.{$today}&timeout=is.null&order=att_id.desc&limit=1&select=att_id"
 );
 if ($err) {
     http_response_code(500);
@@ -181,11 +240,10 @@ if ($err) {
 }
 if ($status !== 200 || !is_array($rows) || count($rows) === 0) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'message' => 'No open clock-in found to clock out']);
+    echo json_encode(['ok' => false, 'message' => 'No clock-in found for today to clock out']);
     exit;
 }
 $att_id = (int)$rows[0]['att_id'];
-$attendanceDate = isset($rows[0]['date']) ? (string)$rows[0]['date'] : $today;
 
 [$status, $result, $err] = supabase_request(
     'PATCH',
@@ -207,7 +265,7 @@ echo json_encode([
     'ok' => true,
     'message' => 'Clock-out recorded',
     'emp_id' => $emp_id,
-    'date' => $attendanceDate,
+    'date' => $today,
     'timeout' => $nowTime,
 ]);
 exit;
