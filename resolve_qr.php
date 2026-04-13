@@ -100,13 +100,13 @@ $email = null;
 $department = null;
 
 if ($resolvedLogId) {
-    [$s2, $employee, $e2] = supabase_select_single(
-        'employees',
-        ['log_id' => $resolvedLogId],
-        'name,role,gender,birthday,address,phone,email,dept_id'
+    [$s2, $empRows, $e2] = supabase_request(
+        'GET',
+        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=emp_id,name,role,gender,birthday,address,phone,email,dept_id,accounts!inner(log_id,username,profile_picture),departments(name)"
     );
 
-    if (!$e2 && is_array($employee) && count($employee) > 0) {
+    if (!$e2 && is_array($empRows) && count($empRows) > 0) {
+        $employee = $empRows[0];
         $displayName = $employee['name'] ?? null;
         $role = $employee['role'] ?? null;
         $gender = $employee['gender'] ?? null;
@@ -114,18 +114,8 @@ if ($resolvedLogId) {
         $address = $employee['address'] ?? null;
         $phone = $employee['phone'] ?? null;
         $email = $employee['email'] ?? null;
-
-        if (!empty($employee['dept_id'])) {
-            [$s3, $dept, $e3] = supabase_select_single('departments', ['id' => $employee['dept_id']], 'name');
-            if (!$e3 && is_array($dept) && isset($dept['name'])) {
-                $department = $dept['name'];
-            }
-        }
-    }
-
-    [$s4, $account, $e4] = supabase_select_single('accounts', ['log_id' => $resolvedLogId], 'profile_picture');
-    if (!$e4 && is_array($account) && isset($account['profile_picture'])) {
-        $profilePicture = $account['profile_picture'];
+        $profilePicture = $employee['accounts']['profile_picture'] ?? null;
+        $department = $employee['departments']['name'] ?? null;
     }
 }
 
