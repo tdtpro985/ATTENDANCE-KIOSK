@@ -90,13 +90,15 @@ if ($status !== 200 || !is_array($data) || count($data) === 0) {
 $resolvedLogId = $data[0]['log_id'] ?? null;
 $resolvedUsername = $data[0]['username'] ?? $username;
 $displayName = null;
+$profilePicture = null;
 if ($resolvedLogId) {
     [$s2, $empRows, $e2] = supabase_request(
         'GET',
-        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=name,emp_id"
+        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=name,emp_id,accounts!inner(profile_picture)"
     );
     if (!$e2 && is_array($empRows) && count($empRows) > 0) {
         $displayName = $empRows[0]['name'] ?? null;
+        $profilePicture = $empRows[0]['accounts']['profile_picture'] ?? null;
     }
 }
 
@@ -106,6 +108,7 @@ echo json_encode([
         'log_id' => $resolvedLogId,
         'username' => $resolvedUsername,
         'name' => $displayName,
+        'profile_picture' => $profilePicture,
     ],
 ]);
 
