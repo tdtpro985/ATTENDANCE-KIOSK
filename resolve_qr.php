@@ -91,21 +91,41 @@ $resolvedLogId = $data[0]['log_id'] ?? null;
 $resolvedUsername = $data[0]['username'] ?? $username;
 $displayName = null;
 $profilePicture = null;
+$role = null;
+$gender = null;
+$birthday = null;
+$address = null;
+$phone = null;
+$email = null;
+$department = null;
+
 if ($resolvedLogId) {
-    [$s2, $empRows, $e2] = supabase_request(
-        'GET',
-        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=*,accounts!inner(profile_picture),departments(name)"
+    [$s2, $employee, $e2] = supabase_select_single(
+        'employees',
+        ['log_id' => $resolvedLogId],
+        'name,role,gender,birthday,address,phone,email,dept_id'
     );
-    if (!$e2 && is_array($empRows) && count($empRows) > 0) {
-        $displayName = $empRows[0]['name'] ?? null;
-        $profilePicture = $empRows[0]['accounts']['profile_picture'] ?? null;
-        $role = $empRows[0]['role'] ?? null;
-        $gender = $empRows[0]['gender'] ?? null;
-        $birthday = $empRows[0]['birthday'] ?? null;
-        $address = $empRows[0]['address'] ?? null;
-        $phone = $empRows[0]['phone'] ?? null;
-        $email = $empRows[0]['email'] ?? null;
-        $department = $empRows[0]['departments']['name'] ?? null;
+
+    if (!$e2 && is_array($employee) && count($employee) > 0) {
+        $displayName = $employee['name'] ?? null;
+        $role = $employee['role'] ?? null;
+        $gender = $employee['gender'] ?? null;
+        $birthday = $employee['birthday'] ?? null;
+        $address = $employee['address'] ?? null;
+        $phone = $employee['phone'] ?? null;
+        $email = $employee['email'] ?? null;
+
+        if (!empty($employee['dept_id'])) {
+            [$s3, $dept, $e3] = supabase_select_single('departments', ['id' => $employee['dept_id']], 'name');
+            if (!$e3 && is_array($dept) && isset($dept['name'])) {
+                $department = $dept['name'];
+            }
+        }
+    }
+
+    [$s4, $account, $e4] = supabase_select_single('accounts', ['log_id' => $resolvedLogId], 'profile_picture');
+    if (!$e4 && is_array($account) && isset($account['profile_picture'])) {
+        $profilePicture = $account['profile_picture'];
     }
 }
 
