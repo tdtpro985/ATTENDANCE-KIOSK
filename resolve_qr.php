@@ -94,11 +94,18 @@ $profilePicture = null;
 if ($resolvedLogId) {
     [$s2, $empRows, $e2] = supabase_request(
         'GET',
-        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=name,emp_id,accounts!inner(profile_picture)"
+        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=emp_id,name,role,gender,birthday,address,phone,email,dept_id,log_id,accounts!inner(profile_picture),departments(name)"
     );
     if (!$e2 && is_array($empRows) && count($empRows) > 0) {
         $displayName = $empRows[0]['name'] ?? null;
         $profilePicture = $empRows[0]['accounts']['profile_picture'] ?? null;
+        $role = $empRows[0]['role'] ?? null;
+        $gender = $empRows[0]['gender'] ?? null;
+        $birthday = $empRows[0]['birthday'] ?? null;
+        $address = $empRows[0]['address'] ?? null;
+        $phone = $empRows[0]['phone'] ?? null;
+        $email = $empRows[0]['email'] ?? null;
+        $department = $empRows[0]['departments']['name'] ?? null;
     }
 }
 
@@ -109,6 +116,13 @@ echo json_encode([
         'username' => $resolvedUsername,
         'name' => $displayName,
         'profile_picture' => $profilePicture,
+        'role' => $role,
+        'gender' => $gender,
+        'birthday' => $birthday,
+        'address' => $address,
+        'phone' => $phone,
+        'email' => $email,
+        'department' => $department,
     ],
 ]);
 
