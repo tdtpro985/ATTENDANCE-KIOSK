@@ -162,18 +162,23 @@ if ($action === 'clock_in') {
     }
 
     // Allow multiple clock-ins per day - always create new record
+    error_log("Attempting to insert attendance record for emp_id: {$emp_id}, timein: {$nowTime}, date: {$today}");
     [$status, $result, $err] = supabase_insert('attendance', [
         'emp_id' => $emp_id,
         'timein' => $nowTime,
         'timeout' => null,
         'date'   => $today,
     ]);
+    error_log("Insert result - Status: {$status}, Error: " . ($err ?: 'none') . ", Result: " . json_encode($result));
+
     if ($err) {
+        error_log("Database error during clock-in: {$err}");
         http_response_code(500);
         echo json_encode(['ok' => false, 'message' => 'Failed to record clock-in', 'detail' => $err]);
         exit;
     }
     if ($status < 200 || $status >= 300) {
+        error_log("HTTP error during clock-in: Status {$status}, Result: " . json_encode($result));
         http_response_code($status);
         echo json_encode([
             'ok' => false,
@@ -194,21 +199,26 @@ if ($action === 'clock_in') {
 }
 
 // clock_out: find today's row for this emp with timeout IS NULL, then set timeout
+error_log("Attempting clock-out for emp_id: {$emp_id}, date: {$today}");
 [$status, $rows, $err] = supabase_request(
     'GET',
     "rest/v1/attendance?emp_id=eq.{$emp_id}&date=eq.{$today}&timeout=is.null&order=att_id.desc&limit=1&select=att_id"
 );
+error_log("Clock-out query result - Status: {$status}, Rows found: " . count($rows ?? []) . ", Error: " . ($err ?: 'none'));
+
 if ($err) {
     http_response_code(500);
     echo json_encode(['ok' => false, 'message' => 'Database error', 'detail' => $err]);
     exit;
 }
 if ($status !== 200 || !is_array($rows) || count($rows) === 0) {
+    error_log("No open clock-in found for clock-out - emp_id: {$emp_id}, date: {$today}");
     http_response_code(400);
     echo json_encode(['ok' => false, 'message' => 'No clock-in found for today to clock out']);
     exit;
 }
 $att_id = (int)$rows[0]['att_id'];
+error_log("Found open attendance record att_id: {$att_id} for clock-out");
 
 [$status, $result, $err] = supabase_request(
     'PATCH',
@@ -216,6 +226,8 @@ $att_id = (int)$rows[0]['att_id'];
     ['timeout' => $nowTime],
     ['Prefer: return=representation']
 );
+error_log("Clock-out update result - Status: {$status}, Error: " . ($err ?: 'none') . ", Result: " . json_encode($result));
+
 if ($err) {
     http_response_code(500);
     echo json_encode(['ok' => false, 'message' => 'Failed to record clock-out', 'detail' => $err]);
