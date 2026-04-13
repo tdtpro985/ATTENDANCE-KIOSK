@@ -111,7 +111,7 @@ $department = null;
 if ($resolvedLogId) {
     [$s2, $empRows, $e2] = supabase_request(
         'GET',
-        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=emp_id,name,role,gender,birthday,address,phone,email,dept_id,accounts!inner(log_id,username,profile_picture),departments(name)"
+        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=name,role,dept_id,accounts!inner(profile_picture),departments(name)"
     );
 
     error_log("resolve_qr.php: Query result - Status: $s2, Error: " . ($e2 ?: 'none') . ", Rows: " . count($empRows ?? []));
@@ -121,11 +121,6 @@ if ($resolvedLogId) {
         error_log("resolve_qr.php: Employee data: " . json_encode($employee));
         $displayName = normalize_value($employee['name'] ?? null);
         $role = normalize_value($employee['role'] ?? null);
-        $gender = normalize_value($employee['gender'] ?? null);
-        $birthday = normalize_value($employee['birthday'] ?? null);
-        $address = normalize_value($employee['address'] ?? null);
-        $phone = normalize_value($employee['phone'] ?? null);
-        $email = normalize_value($employee['email'] ?? null);
         $profilePicture = normalize_value($employee['accounts']['profile_picture'] ?? null);
         $department = normalize_value($employee['departments']['name'] ?? null);
     } else {
@@ -141,11 +136,6 @@ echo json_encode([
         'name' => $displayName,
         'profile_picture' => $profilePicture,
         'role' => $role,
-        'gender' => $gender,
-        'birthday' => $birthday,
-        'address' => $address,
-        'phone' => $phone,
-        'email' => $email,
         'department' => $department,
     ],
 ]);
@@ -158,11 +148,6 @@ error_log("resolve_qr.php: Final response: " . json_encode([
         'name' => $displayName,
         'profile_picture' => $profilePicture,
         'role' => $role,
-        'gender' => $gender,
-        'birthday' => $birthday,
-        'address' => $address,
-        'phone' => $phone,
-        'email' => $email,
         'department' => $department,
     ],
 ]));
