@@ -138,10 +138,10 @@ $today = date('Y-m-d');
 $nowTime = date('H:i:s');
 
 if ($action === 'clock_in') {
-    // If already clocked in today, return the existing record instead of failing insert.
+    // Check if already clocked in today (open session)
     [$status, $rows, $err] = supabase_request(
         'GET',
-        "rest/v1/attendance?emp_id=eq.{$emp_id}&date=eq.{$today}&order=att_id.desc&limit=1&select=att_id,timein,timeout,date"
+        "rest/v1/attendance?emp_id=eq.{$emp_id}&date=eq.{$today}&timeout=is.null&order=att_id.desc&limit=1&select=att_id,timein,timeout,date"
     );
     if ($err) {
         http_response_code(500);
@@ -151,31 +151,17 @@ if ($action === 'clock_in') {
     if ($status === 200 && is_array($rows) && count($rows) > 0) {
         $row = $rows[0];
         $existingTimein = $row['timein'] ?? null;
-        $existingTimeout = $row['timeout'] ?? null;
-        if ($existingTimein !== null && $existingTimeout === null) {
-            echo json_encode([
-                'ok' => true,
-                'message' => 'Already clocked in',
-                'emp_id' => $emp_id,
-                'date' => $today,
-                'timein' => $existingTimein,
-            ]);
-            exit;
-        }
-        if ($existingTimein !== null && $existingTimeout !== null) {
-            http_response_code(400);
-            echo json_encode([
-                'ok' => false,
-                'message' => 'Already clocked out for today',
-                'emp_id' => $emp_id,
-                'date' => $today,
-                'timein' => $existingTimein,
-                'timeout' => $existingTimeout,
-            ]);
-            exit;
-        }
+        echo json_encode([
+            'ok' => true,
+            'message' => 'Already clocked in',
+            'emp_id' => $emp_id,
+            'date' => $today,
+            'timein' => $existingTimein,
+        ]);
+        exit;
     }
 
+    // Allow multiple clock-ins per day - always create new record
     [$status, $result, $err] = supabase_insert('attendance', [
         'emp_id' => $emp_id,
         'timein' => $nowTime,
@@ -188,27 +174,6 @@ if ($action === 'clock_in') {
         exit;
     }
     if ($status < 200 || $status >= 300) {
-        // If insert failed (e.g., unique constraint), try to return existing row.
-        [$s2, $rows2, $e2] = supabase_request(
-            'GET',
-            "rest/v1/attendance?emp_id=eq.{$emp_id}&date=eq.{$today}&order=att_id.desc&limit=1&select=att_id,timein,timeout,date"
-        );
-        if (!$e2 && $s2 === 200 && is_array($rows2) && count($rows2) > 0) {
-            $row2 = $rows2[0];
-            $existingTimein = $row2['timein'] ?? null;
-            $existingTimeout = $row2['timeout'] ?? null;
-            if ($existingTimein !== null && $existingTimeout === null) {
-                echo json_encode([
-                    'ok' => true,
-                    'message' => 'Already clocked in',
-                    'emp_id' => $emp_id,
-                    'date' => $today,
-                    'timein' => $existingTimein,
-                ]);
-                exit;
-            }
-        }
-
         http_response_code($status);
         echo json_encode([
             'ok' => false,
