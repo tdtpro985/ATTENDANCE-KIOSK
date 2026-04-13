@@ -94,7 +94,7 @@ $profilePicture = null;
 if ($resolvedLogId) {
     [$s2, $empRows, $e2] = supabase_request(
         'GET',
-        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=emp_id,name,role,gender,birthday,address,phone,email,dept_id,log_id,accounts!inner(profile_picture),departments(name)"
+        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=*,accounts!inner(profile_picture),departments(name)"
     );
     if (!$e2 && is_array($empRows) && count($empRows) > 0) {
         $displayName = $empRows[0]['name'] ?? null;
