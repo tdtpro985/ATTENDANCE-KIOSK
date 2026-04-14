@@ -89,16 +89,69 @@ if ($status !== 200 || !is_array($data) || count($data) === 0) {
 
 $resolvedLogId = $data[0]['log_id'] ?? null;
 $resolvedUsername = $data[0]['username'] ?? $username;
+
+function normalize_value($value) {
+    if ($value === null || $value === false || $value === '') {
+        return null;
+    }
+    $text = trim((string)$value);
+    return $text === '' ? null : $text;
+}
+
 $displayName = null;
 $profilePicture = null;
+$role = null;
+$gender = null;
+$birthday = null;
+$address = null;
+$phone = null;
+$email = null;
+$department = null;
+
 if ($resolvedLogId) {
+    // First get basic employee data
     [$s2, $empRows, $e2] = supabase_request(
         'GET',
-        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=name,emp_id,accounts!inner(profile_picture)"
+        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=name,role,dept_id"
     );
+
+    error_log("resolve_qr.php: Basic employee query - Status: $s2, Error: " . ($e2 ?: 'none') . ", Rows: " . count($empRows ?? []));
+
     if (!$e2 && is_array($empRows) && count($empRows) > 0) {
-        $displayName = $empRows[0]['name'] ?? null;
-        $profilePicture = $empRows[0]['accounts']['profile_picture'] ?? null;
+        $employee = $empRows[0];
+        error_log("resolve_qr.php: Basic employee data: " . json_encode($employee));
+
+        $displayName = normalize_value($employee['name'] ?? null);
+        $role = normalize_value($employee['role'] ?? null);
+        $deptId = $employee['dept_id'] ?? null;
+
+        // Get department name if dept_id exists
+        $department = null;
+        if ($deptId) {
+            [$s3, $deptRows, $e3] = supabase_request(
+                'GET',
+                "rest/v1/departments?id=eq." . urlencode($deptId) . "&select=name"
+            );
+            if (!$e3 && is_array($deptRows) && count($deptRows) > 0) {
+                $department = normalize_value($deptRows[0]['name'] ?? null);
+            }
+            error_log("resolve_qr.php: Department query - dept_id: $deptId, department: '$department'");
+        }
+
+        // Get profile picture
+        [$s4, $accountRows, $e4] = supabase_request(
+            'GET',
+            "rest/v1/accounts?log_id=eq." . urlencode($resolvedLogId) . "&select=profile_picture"
+        );
+        $profilePicture = null;
+        if (!$e4 && is_array($accountRows) && count($accountRows) > 0) {
+            $profilePicture = normalize_value($accountRows[0]['profile_picture'] ?? null);
+        }
+        error_log("resolve_qr.php: Account query - profile_picture: '$profilePicture'");
+
+        error_log("resolve_qr.php: Final processed values - name: '$displayName', role: '$role', department: '$department', profile_picture: '$profilePicture'");
+    } else {
+        error_log("resolve_qr.php: No employee data found for log_id: $resolvedLogId");
     }
 }
 
@@ -109,8 +162,22 @@ echo json_encode([
         'username' => $resolvedUsername,
         'name' => $displayName,
         'profile_picture' => $profilePicture,
+        'role' => $role,
+        'department' => $department,
     ],
 ]);
+
+error_log("resolve_qr.php: Final response: " . json_encode([
+    'ok' => true,
+    'user' => [
+        'log_id' => $resolvedLogId,
+        'username' => $resolvedUsername,
+        'name' => $displayName,
+        'profile_picture' => $profilePicture,
+        'role' => $role,
+        'department' => $department,
+    ],
+]));
 
 if (ob_get_level()) {
     ob_end_flush();
