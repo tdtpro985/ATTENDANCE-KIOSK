@@ -125,17 +125,25 @@ if ($resolvedLogId) {
         $role = normalize_value($employee['role'] ?? null);
         $deptId = $employee['dept_id'] ?? null;
 
+        error_log("resolve_qr.php: DEBUG - employee array keys: " . implode(", ", array_keys($employee)));
+        error_log("resolve_qr.php: DEBUG - dept_id value: " . var_export($deptId, true));
+
         // Get department name if dept_id exists
         $department = null;
         if ($deptId) {
+            error_log("resolve_qr.php: DEBUG - Looking up department with id: '$deptId'");
             [$s3, $deptRows, $e3] = supabase_request(
                 'GET',
                 "rest/v1/departments?id=eq." . urlencode($deptId) . "&select=name"
             );
+            error_log("resolve_qr.php: DEBUG - Department query status: $s3, error: " . ($e3 ?: 'none') . ", rows: " . count($deptRows ?? []));
             if (!$e3 && is_array($deptRows) && count($deptRows) > 0) {
+                error_log("resolve_qr.php: DEBUG - Department rows: " . json_encode($deptRows));
                 $department = normalize_value($deptRows[0]['name'] ?? null);
             }
             error_log("resolve_qr.php: Department query - dept_id: $deptId, department: '$department'");
+        } else {
+            error_log("resolve_qr.php: DEBUG - dept_id is empty or null");
         }
 
         // Get profile picture
