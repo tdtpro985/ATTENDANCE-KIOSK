@@ -118,11 +118,12 @@ if ($resolvedLogId) {
 
     if (!$e2 && is_array($empRows) && count($empRows) > 0) {
         $employee = $empRows[0];
-        error_log("resolve_qr.php: Employee data: " . json_encode($employee));
+        error_log("resolve_qr.php: Raw employee data: " . json_encode($employee));
         $displayName = normalize_value($employee['name'] ?? null);
         $role = normalize_value($employee['role'] ?? null);
         $profilePicture = normalize_value($employee['accounts']['profile_picture'] ?? null);
         $department = normalize_value($employee['departments']['name'] ?? null);
+        error_log("resolve_qr.php: Processed values - name: '$displayName', role: '$role', department: '$department', profile_picture: '$profilePicture'");
     } else {
         error_log("resolve_qr.php: No employee data found for log_id: $resolvedLogId");
     }
