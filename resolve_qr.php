@@ -110,12 +110,36 @@ $department = null;
 
 if ($resolvedLogId) {
     // First get basic employee data
+    $employeeQuery = "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=name,role,dept_id";
+    error_log("resolve_qr.php: DEBUG - Employee query URL: $employeeQuery");
+
     [$s2, $empRows, $e2] = supabase_request(
         'GET',
-        "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=name,role,dept_id"
+        $employeeQuery
     );
 
+    error_log("resolve_qr.php: DEBUG - Employee query raw response: " . json_encode($empRows));
     error_log("resolve_qr.php: Basic employee query - Status: $s2, Error: " . ($e2 ?: 'none') . ", Rows: " . count($empRows ?? []));
+
+    // Debug: Get all departments to see table structure
+    error_log("resolve_qr.php: DEBUG - Getting all departments to check table structure");
+    [$allDeptStatus, $allDeptRows, $allDeptError] = supabase_request(
+        'GET',
+        "rest/v1/departments?select=*&limit=5"
+    );
+    error_log("resolve_qr.php: DEBUG - All departments query status: $allDeptStatus, error: " . ($allDeptError ?: 'none') . ", rows: " . count($allDeptRows ?? []));
+    if ($allDeptRows && count($allDeptRows) > 0) {
+        error_log("resolve_qr.php: DEBUG - Sample department row: " . json_encode($allDeptRows[0]));
+        error_log("resolve_qr.php: DEBUG - Department table columns: " . implode(', ', array_keys($allDeptRows[0])));
+    }
+
+    if ($empRows && count($empRows) > 0) {
+        $employee = $empRows[0];
+        error_log("resolve_qr.php: DEBUG - Employee data: " . json_encode($employee));
+        error_log("resolve_qr.php: DEBUG - Employee keys: " . implode(', ', array_keys($employee)));
+        error_log("resolve_qr.php: DEBUG - dept_id value: " . ($employee['dept_id'] ?? 'NOT SET'));
+        error_log("resolve_qr.php: DEBUG - dept_id type: " . gettype($employee['dept_id'] ?? null));
+    }
 
     if (!$e2 && is_array($empRows) && count($empRows) > 0) {
         $employee = $empRows[0];
@@ -132,11 +156,31 @@ if ($resolvedLogId) {
         $department = null;
         if ($deptId) {
             error_log("resolve_qr.php: DEBUG - Looking up department with id: '$deptId'");
+            $deptQuery = "rest/v1/departments?id=eq." . urlencode($deptId) . "&select=name";
+            error_log("resolve_qr.php: DEBUG - Department query URL: $deptQuery");
+
+            // First try with 'id' column
             [$s3, $deptRows, $e3] = supabase_request(
                 'GET',
-                "rest/v1/departments?id=eq." . urlencode($deptId) . "&select=name"
+                $deptQuery
             );
+
+            error_log("resolve_qr.php: DEBUG - Department query raw response: " . json_encode($deptRows));
             error_log("resolve_qr.php: DEBUG - Department query status: $s3, error: " . ($e3 ?: 'none') . ", rows: " . count($deptRows ?? []));
+
+            // If no results, try with 'dept_id' column
+            if ((!$deptRows || count($deptRows) === 0) && !$e3) {
+                error_log("resolve_qr.php: DEBUG - No results with 'id', trying 'dept_id' column");
+                $deptQuery2 = "rest/v1/departments?dept_id=eq." . urlencode($deptId) . "&select=name";
+                error_log("resolve_qr.php: DEBUG - Alternative department query URL: $deptQuery2");
+                [$s3, $deptRows, $e3] = supabase_request(
+                    'GET',
+                    $deptQuery2
+                );
+                error_log("resolve_qr.php: DEBUG - Alternative department query raw response: " . json_encode($deptRows));
+                error_log("resolve_qr.php: DEBUG - Alternative department query status: $s3, error: " . ($e3 ?: 'none') . ", rows: " . count($deptRows ?? []));
+            }
+
             if (!$e3 && is_array($deptRows) && count($deptRows) > 0) {
                 error_log("resolve_qr.php: DEBUG - Department rows: " . json_encode($deptRows));
                 $department = normalize_value($deptRows[0]['name'] ?? null);
