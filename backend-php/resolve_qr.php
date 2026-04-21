@@ -50,11 +50,13 @@ if ($qr === '') {
 // Expected format: LOG_ID:<id> or USER:<username>|HASH:<...>|TIME:<...>
 $logId = null;
 $username = null;
-if (preg_match('/LOG_ID:([0-9]+)/', $qr, $m)) {
-    $logId = trim($m[1]);
-}
-if (!$logId && preg_match('/USER:([^|]+)/', $qr, $m)) {
-    $username = trim($m[1]);
+if (preg_match('/(?:LOG_ID|USER):([^|]+)/i', $qr, $m)) {
+    $value = trim($m[1]);
+    if (preg_match('/LOG_ID:/i', $qr)) {
+        $logId = $value;
+    } else {
+        $username = $value;
+    }
 }
 
 if (!$logId && !$username) {
@@ -73,6 +75,32 @@ if ($logId) {
         'GET',
         "rest/v1/accounts?username=eq." . urlencode($username) . "&select=log_id,username"
     );
+
+    // Fall back to a case-insensitive scan if the exact username casing doesn't match.
+    if ((!$err && (!is_array($data) || count($data) === 0)) || $status === 404) {
+        [$allStatus, $allRows, $allErr] = supabase_request(
+            'GET',
+            "rest/v1/accounts?select=log_id,username&limit=1000"
+        );
+
+        if (!$allErr && is_array($allRows) && count($allRows) > 0) {
+            $match = null;
+            $needle = strtolower(trim((string)$username));
+            foreach ($allRows as $row) {
+                $rowUsername = strtolower(trim((string)($row['username'] ?? '')));
+                if ($needle !== '' && $rowUsername === $needle) {
+                    $match = $row;
+                    break;
+                }
+            }
+
+            if ($match) {
+                $status = 200;
+                $data = [$match];
+                $err = null;
+            }
+        }
+    }
 }
 
 if ($err) {
