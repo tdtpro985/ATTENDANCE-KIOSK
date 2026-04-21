@@ -169,14 +169,10 @@ if ($resolvedLogId) {
         if ($deptId) {
             error_log("resolve_qr.php: DEBUG - Looking up department with id: '$deptId'");
 
-            // Try multiple possible column names for department lookup
+            // Try the actual departments table schema you showed: dept_id key and name column.
             $deptQueries = [
-                "rest/v1/departments?id=eq." . urlencode($deptId) . "&select=name",
                 "rest/v1/departments?dept_id=eq." . urlencode($deptId) . "&select=name",
-                "rest/v1/departments?department_id=eq." . urlencode($deptId) . "&select=name",
-                "rest/v1/department?id=eq." . urlencode($deptId) . "&select=name",
-                "rest/v1/department?dept_id=eq." . urlencode($deptId) . "&select=name",
-                "rest/v1/department?department_id=eq." . urlencode($deptId) . "&select=name"
+                "rest/v1/department?dept_id=eq." . urlencode($deptId) . "&select=name"
             ];
 
             foreach ($deptQueries as $index => $query) {
