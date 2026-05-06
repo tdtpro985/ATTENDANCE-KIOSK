@@ -118,12 +118,16 @@ if ($storedFace && is_string($storedFace)) {
     }
     if ($hex !== null) {
         $decoded = @hex2bin($hex);
-        $storedFaceBase64 = ($decoded !== false) ? $decoded : $storedFace;
+        $storedFaceBase64 = ($decoded !== false) ? base64_encode($decoded) : $storedFace;
     } else {
         $storedFaceBase64 = $storedFace;
     }
 } else {
     $storedFaceBase64 = null;
+}
+
+if (is_string($storedFaceBase64)) {
+    $storedFaceBase64 = preg_replace('/^data:image\/[a-zA-Z0-9.+-]+;base64,/', '', trim($storedFaceBase64));
 }
 
 // If no stored face available, respond with 404 so client can fall back
