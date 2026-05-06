@@ -48,22 +48,40 @@ if (file_exists(__DIR__ . '/luxand_face_api.php')) {
     require_once __DIR__ . '/luxand_face_api.php';
 }
 
-// Read uploaded file
-if (empty($_FILES['photo']) || empty($_FILES['photo']['tmp_name'])) {
+$photoBase64 = null;
+
+// Read uploaded file first.
+if (!empty($_FILES['photo']) && !empty($_FILES['photo']['tmp_name'])) {
+    $tmp = $_FILES['photo']['tmp_name'];
+    $photoData = @file_get_contents($tmp);
+    if ($photoData === false) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'message' => 'Failed to read uploaded file']);
+        exit;
+    }
+
+    $photoBase64 = base64_encode($photoData);
+} elseif (!empty($_POST['photo_base64'])) {
+    $photoBase64 = trim((string)$_POST['photo_base64']);
+    if (preg_match('/^data:image\/[a-zA-Z0-9.+-]+;base64,/', $photoBase64)) {
+        $photoBase64 = preg_replace('/^data:image\/[a-zA-Z0-9.+-]+;base64,/', '', $photoBase64);
+    }
+    $decodedPhoto = base64_decode($photoBase64, true);
+    if ($decodedPhoto === false) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'message' => 'Invalid photo_base64 data']);
+        exit;
+    }
+    $photoBase64 = base64_encode($decodedPhoto);
+} else {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'message' => 'Missing photo file']);
+    echo json_encode([
+        'ok' => false,
+        'message' => 'Missing photo file',
+        'hint' => 'Send multipart field "photo" or base64 field "photo_base64".'
+    ]);
     exit;
 }
-
-$tmp = $_FILES['photo']['tmp_name'];
-$photoData = @file_get_contents($tmp);
-if ($photoData === false) {
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Failed to read uploaded file']);
-    exit;
-}
-
-$photoBase64 = base64_encode($photoData);
 
 $userId = isset($_POST['user_id']) ? trim($_POST['user_id']) : null;
 
