@@ -18,6 +18,23 @@ const LUXAND_API_BASE_URL = 'https://api.luxand.cloud/v2';
 // Global variable to store last Luxand API error
 $GLOBALS['luxand_last_error'] = null;
 
+function luxand_normalize_base64_image(string $imageBase64): ?string
+{
+    $imageBase64 = trim($imageBase64);
+    $imageBase64 = preg_replace('/^data:image\/[a-zA-Z0-9.+-]+;base64,/', '', $imageBase64);
+    $clean = preg_replace('/[^A-Za-z0-9+\/=\-_]/', '', $imageBase64);
+    $decoded = base64_decode($clean, true);
+    if ($decoded === false) {
+        $decoded = base64_decode(strtr($clean, '-_', '+/'));
+    }
+
+    if ($decoded === false || $decoded === '') {
+        return null;
+    }
+
+    return base64_encode($decoded);
+}
+
 /**
  * Recognize a face in an image using Luxand API
  * 
@@ -36,12 +53,13 @@ function luxand_recognize_face(string $imageBase64): ?array
     // Try /search first (most common endpoint)
     $url = LUXAND_API_BASE_URL . '/search';
     
-    $imageData = base64_decode($imageBase64, true);
-    if ($imageData === false) {
+    $normalized = luxand_normalize_base64_image($imageBase64);
+    if ($normalized === null) {
         $GLOBALS['luxand_last_error'] = 'Invalid base64 image data';
         error_log("Invalid base64 image data for Luxand API");
         return null;
     }
+    $imageData = base64_decode($normalized, true);
     
     // Validate image size (Luxand typically accepts up to 10MB)
     if (strlen($imageData) < 1024) {
@@ -219,11 +237,12 @@ function luxand_add_person(string $imageBase64, string $personName): ?string
     // Luxand API endpoint for adding a person
     $url = LUXAND_API_BASE_URL . '/person';
     
-    $imageData = base64_decode($imageBase64, true);
-    if ($imageData === false) {
+    $normalized = luxand_normalize_base64_image($imageBase64);
+    if ($normalized === null) {
         $GLOBALS['luxand_last_error'] = 'Invalid base64 image data';
         return null;
     }
+    $imageData = base64_decode($normalized, true);
     
     // Create multipart form data
     $boundary = uniqid();
@@ -297,13 +316,15 @@ function luxand_compare_faces_direct(string $image1Base64, string $image2Base64)
     }
     
     // Decode images
-    $image1Data = base64_decode($image1Base64, true);
-    $image2Data = base64_decode($image2Base64, true);
-    
-    if ($image1Data === false || $image2Data === false) {
+    $normalized1 = luxand_normalize_base64_image($image1Base64);
+    $normalized2 = luxand_normalize_base64_image($image2Base64);
+
+    if ($normalized1 === null || $normalized2 === null) {
         $GLOBALS['luxand_last_error'] = 'Invalid base64 image data';
         return -1.0;
     }
+    $image1Data = base64_decode($normalized1, true);
+    $image2Data = base64_decode($normalized2, true);
     
     // Create temporary files for the images
     $tmpFile1 = tempnam(sys_get_temp_dir(), 'luxand_face1_');
