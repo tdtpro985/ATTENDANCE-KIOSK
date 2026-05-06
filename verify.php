@@ -43,6 +43,7 @@ if (file_exists(__DIR__ . '/luxand_face_api.php')) {
 }
 
 $photoBase64 = null;
+$photoBytes = null;
 
 // Read uploaded file first.
 if (!empty($_FILES['photo']) && !empty($_FILES['photo']['tmp_name'])) {
@@ -55,6 +56,7 @@ if (!empty($_FILES['photo']) && !empty($_FILES['photo']['tmp_name'])) {
     }
 
     $photoBase64 = base64_encode($photoData);
+    $photoBytes = $photoData;
 } elseif (!empty($_POST['photo_base64'])) {
     $photoBase64 = trim((string)$_POST['photo_base64']);
     if (preg_match('/^data:image\/[a-zA-Z0-9.+-]+;base64,/', $photoBase64)) {
@@ -67,6 +69,7 @@ if (!empty($_FILES['photo']) && !empty($_FILES['photo']['tmp_name'])) {
         exit;
     }
     $photoBase64 = base64_encode($decodedPhoto);
+    $photoBytes = $decodedPhoto;
 } else {
     http_response_code(400);
     echo json_encode([
@@ -130,48 +133,47 @@ if (!$storedFaceBase64) {
     exit;
 }
 
-// Use Face++ compare when properly configured
+// Use Luxand first when configured because it is less strict about upload size.
 $faceppConfigured = function_exists('facepp_api_configured') ? facepp_api_configured() : false;
 $luxandConfigured = function_exists('luxand_face_api_configured') ? luxand_face_api_configured() : false;
 
+if ($luxandConfigured && function_exists('luxand_verify_faces')) {
+    $score = luxand_verify_faces($photoBase64, $storedFaceBase64);
+    if ($score < 0) {
+        $err = function_exists('luxand_get_last_error') ? luxand_get_last_error() : 'Luxand comparison failed';
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'message' => 'Face comparison error', 'detail' => $err]);
+        exit;
+    }
+
+    $threshold = 0.75;
+    if ($score >= $threshold) {
+        echo json_encode([
+            'ok' => true,
+            'message' => 'Face matched',
+            'match_score' => $score,
+            'threshold' => $threshold,
+            'api' => 'luxand',
+        ]);
+        exit;
+    }
+
+    http_response_code(401);
+    echo json_encode([
+        'ok' => false,
+        'message' => 'Face did not match',
+        'match_score' => $score,
+        'threshold' => $threshold,
+        'api' => 'luxand',
+    ]);
+    exit;
+}
+
+// Fall back to Face++ only if Luxand is unavailable.
 if ($faceppConfigured && function_exists('facepp_compare_faces')) {
     $result = facepp_compare_faces($photoBase64, $storedFaceBase64);
     if ($result === null) {
         $err = function_exists('facepp_get_last_error') ? facepp_get_last_error() : 'Face comparison failed';
-
-        // If Face++ rejects the upload for size reasons, try Luxand before failing.
-        if (
-            $luxandConfigured &&
-            function_exists('luxand_verify_faces') &&
-            is_string($err) &&
-            stripos($err, 'IMAGE_FILE_TOO_LARGE') !== false
-        ) {
-            error_log("Face++ rejected upload as too large; falling back to Luxand");
-            $score = luxand_verify_faces($photoBase64, $storedFaceBase64);
-            if ($score >= 0) {
-                $threshold = 0.75;
-                if ($score >= $threshold) {
-                    echo json_encode([
-                        'ok' => true,
-                        'message' => 'Face matched',
-                        'match_score' => $score,
-                        'threshold' => $threshold,
-                        'api' => 'luxand',
-                    ]);
-                    exit;
-                }
-
-                http_response_code(401);
-                echo json_encode([
-                    'ok' => false,
-                    'message' => 'Face did not match',
-                    'match_score' => $score,
-                    'threshold' => $threshold,
-                    'api' => 'luxand',
-                ]);
-                exit;
-            }
-        }
 
         http_response_code(500);
         echo json_encode(['ok' => false, 'message' => 'Face comparison error', 'detail' => $err]);
@@ -194,37 +196,6 @@ if ($faceppConfigured && function_exists('facepp_compare_faces')) {
             'message' => 'Face did not match',
             'match_score' => $result['confidence'],
             'threshold' => $result['threshold']
-        ]);
-        exit;
-    }
-}
-
-// Use Luxand compare when properly configured
-if ($luxandConfigured && function_exists('luxand_verify_faces')) {
-    $score = luxand_verify_faces($photoBase64, $storedFaceBase64);
-    if ($score < 0) {
-        $err = function_exists('luxand_get_last_error') ? luxand_get_last_error() : 'Luxand comparison failed';
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'message' => 'Face comparison error', 'detail' => $err]);
-        exit;
-    }
-
-    $threshold = 0.75;
-    if ($score >= $threshold) {
-        echo json_encode([
-            'ok' => true,
-            'message' => 'Face matched',
-            'match_score' => $score,
-            'threshold' => $threshold
-        ]);
-        exit;
-    } else {
-        http_response_code(401);
-        echo json_encode([
-            'ok' => false,
-            'message' => 'Face did not match',
-            'match_score' => $score,
-            'threshold' => $threshold
         ]);
         exit;
     }
