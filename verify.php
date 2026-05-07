@@ -122,7 +122,7 @@ if ($storedFace && is_string($storedFace)) {
 }
 
 if (is_string($storedFaceBase64)) {
-    $storedFaceBase64 = preg_replace('/^data:image\/[a-zA-Z0-9.+-]+;base64,/', '', trim($storedFaceBase64));
+    $storedFaceBase64 = preg_replace('/^[^,]*;base64,/', '', trim($storedFaceBase64));
 }
 
 // If no stored face available, respond with 404 so client can fall back

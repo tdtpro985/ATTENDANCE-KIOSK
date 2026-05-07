@@ -53,8 +53,8 @@ function normalizeAccount(
 
 function parseQrHints(qrData: string) {
   const exact = qrData.trim();
-  const logIdMatch = exact.match(/LOG_ID:([0-9]+)/);
-  const usernameMatch = exact.match(/USER:([^|]+)/);
+  const logIdMatch = exact.match(/LOG_?ID:([0-9]+)/i);
+  const usernameMatch = exact.match(/USER:([^|]+)/i);
 
   return {
     exact,
