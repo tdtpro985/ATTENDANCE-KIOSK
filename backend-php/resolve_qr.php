@@ -40,19 +40,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 require_once __DIR__ . '/connect.php';
 
-$qr = isset($_GET['qr']) ? trim((string)$_GET['qr']) : '';
+$qr = isset($_GET['qr']) ? trim((string) $_GET['qr']) : '';
 if ($qr === '') {
     http_response_code(400);
     echo json_encode(['ok' => false, 'message' => 'Missing qr parameter']);
     exit;
 }
 
-// Expected format: LOG_ID:<id> or USER:<username>|HASH:<...>|TIME:<...>
+// Expected format: LOG_ID:<id>, LOGID:<id>, or USER:<username>|HASH:<...>|TIME:<...>
 $logId = null;
 $username = null;
-if (preg_match('/(?:LOG_ID|USER):([^|]+)/i', $qr, $m)) {
+if (preg_match('/(?:LOG_?ID|USER):([^|]+)/i', $qr, $m)) {
     $value = trim($m[1]);
-    if (preg_match('/LOG_ID:/i', $qr)) {
+    if (preg_match('/LOG_?ID:/i', $qr)) {
         $logId = $value;
     } else {
         $username = $value;
@@ -61,7 +61,7 @@ if (preg_match('/(?:LOG_ID|USER):([^|]+)/i', $qr, $m)) {
 
 if (!$logId && !$username) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'message' => 'Invalid QR format (missing LOG_ID or USER)']);
+    echo json_encode(['ok' => false, 'message' => 'Invalid QR format (missing LOGID or USER)']);
     exit;
 }
 
@@ -85,9 +85,9 @@ if ($logId) {
 
         if (!$allErr && is_array($allRows) && count($allRows) > 0) {
             $match = null;
-            $needle = strtolower(trim((string)$username));
+            $needle = strtolower(trim((string) $username));
             foreach ($allRows as $row) {
-                $rowUsername = strtolower(trim((string)($row['username'] ?? '')));
+                $rowUsername = strtolower(trim((string) ($row['username'] ?? '')));
                 if ($needle !== '' && $rowUsername === $needle) {
                     $match = $row;
                     break;
@@ -118,11 +118,12 @@ if ($status !== 200 || !is_array($data) || count($data) === 0) {
 $resolvedLogId = $data[0]['log_id'] ?? null;
 $resolvedUsername = $data[0]['username'] ?? $username;
 
-function normalize_value($value) {
+function normalize_value($value)
+{
     if ($value === null || $value === false || $value === '') {
         return null;
     }
-    $text = trim((string)$value);
+    $text = trim((string) $value);
     return $text === '' ? null : $text;
 }
 

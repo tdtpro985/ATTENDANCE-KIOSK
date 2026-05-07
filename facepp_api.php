@@ -105,8 +105,8 @@ function facepp_compare_faces(string $image1Base64, string $image2Base64): ?arra
     // Decode base64 images (using robust helper)
     // Helper: robust base64 decode (strip non-base64 chars, try URL-safe variants)
     $safe_base64_decode = function($s) {
-        // Remove data URL prefix if present
-        $s = preg_replace('/^data:[^;]+;base64,/', '', $s);
+        // Remove data URL prefix if present (including weird formats like jpeg;base64,)
+        $s = preg_replace('/^[^,]*;base64,/', '', $s);
         // Strip characters not in base64 alphabet
         $clean = preg_replace('/[^A-Za-z0-9+\/=\-_]/', '', $s);
         $decoded = base64_decode($clean, true);
