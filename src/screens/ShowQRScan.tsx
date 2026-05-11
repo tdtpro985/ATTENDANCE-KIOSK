@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -63,10 +64,32 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   const [modalMessage, setModalMessage] = useState('');
   const [modalHint, setModalHint] = useState('');
   const scaleAnim = useRef(new Animated.Value(0)).current;
+  const scanLineAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     setIsLoading(false);
   }, []);
+
+  useEffect(() => {
+    if (qrVerified && !isVerifying) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(scanLineAnim, {
+            toValue: 1,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(scanLineAnim, {
+            toValue: 0,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      scanLineAnim.setValue(0);
+    }
+  }, [qrVerified, isVerifying, scanLineAnim]);
 
   useEffect(() => {
     let active = true;
@@ -273,7 +296,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   }, [offlineModeEnabled]);
 
   const handleBarcodeScanned = async (event: any) => {
-    if (isVerifying) return;
+    if (isVerifying || qrVerified) return;
 
     const data: string | undefined = event?.data;
     if (!data) return;
@@ -653,16 +676,54 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
           <View style={styles.headerSpacer} />
         </View>
 
-        <View style={[styles.centerStage, qrVerified ? styles.centerStageCompact : styles.centerStageCentered]}>
+        <View style={styles.scannerOverlayContainer} pointerEvents="none">
+          {!qrVerified ? (
+            <View style={styles.qrScannerArea}>
+              <View style={styles.qrFrame}>
+                <View style={[styles.corner, styles.cornerTopLeft]} />
+                <View style={[styles.corner, styles.cornerTopRight]} />
+                <View style={[styles.corner, styles.cornerBottomLeft]} />
+                <View style={[styles.corner, styles.cornerBottomRight]} />
+                <MaterialCommunityIcons name="qrcode-scan" size={80} color="rgba(255,255,255,0.6)" />
+              </View>
+              <Text style={styles.scanInstructionText}>SCAN QR CODE</Text>
+            </View>
+          ) : (
+            <View style={styles.faceScannerArea}>
+              <View style={styles.faceFrame}>
+                <View style={[styles.corner, styles.cornerTopLeft]} />
+                <View style={[styles.corner, styles.cornerTopRight]} />
+                <View style={[styles.corner, styles.cornerBottomLeft]} />
+                <View style={[styles.corner, styles.cornerBottomRight]} />
+                <Animated.View
+                  style={[
+                    styles.scanLine,
+                    {
+                      transform: [
+                        {
+                          translateY: scanLineAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, 240],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.scanInstructionText}>SCAN FACE</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={[styles.footer, qrVerified && styles.footerCompact]}>
           {isVerifying ? (
             <View style={styles.verifyingContainer}>
               <ActivityIndicator size="large" color="#F27121" />
               <Text style={styles.verifyingText}>Verifying face...</Text>
             </View>
           ) : null}
-        </View>
 
-        <View style={[styles.footer, qrVerified && styles.footerCompact]}>
           {qrVerified ? <Text style={styles.welcomeText}>Welcome, {welcomeName ?? 'Employee'}!</Text> : null}
 
           <View style={styles.offlineToolsCard}>
@@ -863,17 +924,91 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   headerSpacer: { width: 62 },
-  centerStage: { flex: 1, minHeight: 0, alignItems: 'center', justifyContent: 'center' },
-  centerStageCentered: { justifyContent: 'center' },
-  centerStageCompact: { justifyContent: 'center' },
-  verifyingContainer: {
-    backgroundColor: 'rgba(0,0,0,0.72)',
-    paddingHorizontal: 22,
-    paddingVertical: 20,
-    borderRadius: 18,
+  scannerOverlayContainer: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  verifyingText: { color: '#fff', marginTop: 10, fontWeight: '700' },
+  qrScannerArea: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  faceScannerArea: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrFrame: {
+    width: 200,
+    height: 200,
+    borderWidth: 0,
+    borderColor: 'rgba(255,255,255,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  faceFrame: {
+    width: 240,
+    height: 240,
+    borderWidth: 0,
+    borderColor: 'rgba(255,255,255,0.3)',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginBottom: 20,
+    overflow: 'hidden',
+  },
+  corner: {
+    position: 'absolute',
+    width: 30,
+    height: 30,
+    borderColor: '#F27121',
+  },
+  cornerTopLeft: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+    borderTopLeftRadius: 10,
+  },
+  cornerTopRight: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderTopRightRadius: 10,
+  },
+  cornerBottomLeft: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderBottomLeftRadius: 10,
+  },
+  cornerBottomRight: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderBottomRightRadius: 10,
+  },
+  scanLine: {
+    width: '100%',
+    height: 3,
+    backgroundColor: '#F27121',
+    shadowColor: '#F27121',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  scanInstructionText: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
   footer: {
     paddingHorizontal: 18,
     paddingTop: 14,
@@ -884,6 +1019,15 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
   },
+  verifyingContainer: {
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    paddingHorizontal: 22,
+    paddingVertical: 20,
+    borderRadius: 18,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  verifyingText: { color: '#fff', marginTop: 10, fontWeight: '700' },
   welcomeText: {
     textAlign: 'center',
     color: '#ffffff',
