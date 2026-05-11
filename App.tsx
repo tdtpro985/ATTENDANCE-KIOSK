@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import ShowQRScan from './src/screens/ShowQRScan';
 import EmployeeProfileData from './src/screens/EmployeeProfileData';
 import Settings from './src/screens/Settings';
@@ -26,46 +26,54 @@ export default function App() {
     return null;
   }, [screen]);
 
-  if (screen !== 'home') {
+  const renderContent = () => {
+    if (screen !== 'home') {
+      return (
+        <>
+          {ScreenComponent}
+          <StatusBar style="auto" />
+        </>
+      );
+    }
+
     return (
-      <>
-        {ScreenComponent}
+      <SafeAreaView style={styles.container}>
+        <View style={styles.backgroundGlowTop} />
+        <View style={styles.backgroundGlowBottom} />
+
+        <View style={styles.homeCard}>
+          <View style={styles.brandBlock}>
+            <View style={styles.brandRow}>
+              <Text style={[styles.brandText, styles.brandDark]}>TDT</Text>
+              <Text style={[styles.brandText, styles.brandAccent]}>POWER</Text>
+              <Text style={[styles.brandText, styles.brandLight]}>STEEL</Text>
+            </View>
+            <Text style={styles.brandTagline}>THE NO.1 STEEL SUPPLIER</Text>
+            <Text style={styles.brandSubcopy}>Attendance Monitoring System</Text>
+          </View>
+
+          <View style={styles.buttonStack}>
+            <Pressable style={styles.pillButton} onPress={() => setScreen('qr')}>
+              <Text style={styles.pillText}>SHOW QR SCAN</Text>
+            </Pressable>
+            <Pressable style={styles.pillButton} onPress={() => setScreen('profile')}>
+              <Text style={styles.pillText}>EMPLOYEE PROFILE DATA</Text>
+            </Pressable>
+            <Pressable style={styles.pillButton} onPress={() => setScreen('settings')}>
+              <Text style={styles.pillText}>SETTINGS</Text>
+            </Pressable>
+          </View>
+        </View>
+
         <StatusBar style="auto" />
-      </>
+      </SafeAreaView>
     );
-  }
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.backgroundGlowTop} />
-      <View style={styles.backgroundGlowBottom} />
-
-      <View style={styles.homeCard}>
-        <View style={styles.brandBlock}>
-          <View style={styles.brandRow}>
-            <Text style={[styles.brandText, styles.brandDark]}>TDT</Text>
-            <Text style={[styles.brandText, styles.brandAccent]}>POWER</Text>
-            <Text style={[styles.brandText, styles.brandLight]}>STEEL</Text>
-          </View>
-          <Text style={styles.brandTagline}>THE NO.1 STEEL SUPPLIER</Text>
-          <Text style={styles.brandSubcopy}>Attendance Monitoring System</Text>
-        </View>
-
-        <View style={styles.buttonStack}>
-          <Pressable style={styles.pillButton} onPress={() => setScreen('qr')}>
-            <Text style={styles.pillText}>SHOW QR SCAN</Text>
-          </Pressable>
-          <Pressable style={styles.pillButton} onPress={() => setScreen('profile')}>
-            <Text style={styles.pillText}>EMPLOYEE PROFILE DATA</Text>
-          </Pressable>
-          <Pressable style={styles.pillButton} onPress={() => setScreen('settings')}>
-            <Text style={styles.pillText}>SETTINGS</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      <StatusBar style="auto" />
-    </SafeAreaView>
+    <SafeAreaProvider>
+      {renderContent()}
+    </SafeAreaProvider>
   );
 }
 
