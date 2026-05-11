@@ -334,8 +334,8 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         'QR Code Verified',
         existingSession
           ? offlineModeEnabled
-            ? 'This user already has an active clock-in. Capture the face photo and save the clock out offline.'
-            : 'This user already has an active clock-in. Look at the camera and press CLOCK OUT to finish logout.'
+            ? 'This user already has an active clock-in. Press CLOCK OUT to save the attendance offline.'
+            : 'This user already has an active clock-in. Press CLOCK OUT to finish logout.'
           : offlineModeEnabled
           ? 'QR recognized. Capture the face photo and this attendance will be saved to offline sync.'
           : 'Look at the camera and press CLOCK IN to verify your face and record your attendance.',
@@ -511,7 +511,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         'warning',
         'Scan QR Code First',
         'Please scan your personal QR code before continuing.',
-        'The user must scan a QR code and then face-verify for both clock in and clock out.'
+        'The user must scan a QR code. Face-verification is required for clock-in but skipped for clock-out.'
       );
       return;
     }
@@ -526,7 +526,13 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     setIsVerifying(true);
 
     try {
-      const result = await runVerification();
+      // Bypassing face verification for clock-out as requested. Logic remains in runVerification().
+      let result;
+      if (attendanceAction === 'clock_out') {
+        result = { ok: true, verified: true, message: 'Clock out authorized.' };
+      } else {
+        result = await runVerification();
+      }
       const action = attendanceAction;
 
       if (result?.ok === true) {
@@ -728,14 +734,18 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
             {!qrVerified && <View style={styles.activeDot} />}
           </View>
           
-          <MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.4)" />
+          {!isClockingOut && (
+            <>
+              <MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.4)" />
 
-          <View style={[styles.stepPill, qrVerified && !isVerifying && styles.stepPillActive, isVerifying && styles.stepPillDone]}>
-            <Text style={[styles.stepPillText, qrVerified && styles.stepPillTextActive]}>
-              2. SCAN FACE
-            </Text>
-            {qrVerified && !isVerifying && <View style={styles.activeDot} />}
-          </View>
+              <View style={[styles.stepPill, qrVerified && !isVerifying && styles.stepPillActive, isVerifying && styles.stepPillDone]}>
+                <Text style={[styles.stepPillText, qrVerified && styles.stepPillTextActive]}>
+                  2. SCAN FACE
+                </Text>
+                {qrVerified && !isVerifying && <View style={styles.activeDot} />}
+              </View>
+            </>
+          )}
         </View>
 
         {/* CENTER SCANNING AREA */}
@@ -750,6 +760,13 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
                 <MaterialCommunityIcons name="qrcode-scan" size={100} color="#F27121" />
               </View>
               <Text style={styles.scanInstructionText}>READY TO SCAN QR</Text>
+            </View>
+          ) : isClockingOut ? (
+            <View style={styles.qrScannerArea}>
+              <View style={styles.qrFrame}>
+                <MaterialCommunityIcons name="account-check" size={120} color="#F27121" />
+              </View>
+              <Text style={styles.scanInstructionText}>READY TO CLOCK OUT</Text>
             </View>
           ) : (
             <View style={styles.faceScannerArea}>
@@ -790,7 +807,9 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
           {isVerifying && (
             <View style={styles.verifyingPill}>
               <ActivityIndicator size="small" color="#F27121" />
-              <Text style={styles.verifyingPillText}>Verifying Identity...</Text>
+              <Text style={styles.verifyingPillText}>
+                {isClockingOut ? 'Processing Logout...' : 'Verifying Identity...'}
+              </Text>
             </View>
           )}
 
