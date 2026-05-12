@@ -1,7 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+// import { CameraView, useCameraPermissions } from 'expo-camera'; // (RESERVED)
+import { 
+  Camera, 
+  useCameraDevice, 
+  useCameraPermission, 
+  useCodeScanner,
+  useFrameProcessor
+} from 'react-native-vision-camera';
+import { useFaceDetector, FaceDetectorDefaultProps } from 'react-native-vision-camera-face-detector';
+import { Worklets } from 'react-native-worklets-core';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -42,8 +51,15 @@ type StoredAttendanceSession = {
 };
 
 export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView | null>(null);
+  // --- VISION CAMERA SETUP ---
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const device = useCameraDevice('front');
+  const cameraRef = useRef<Camera>(null);
+  
+  // Liveness Detection States (Smile or Blink)
+  const [livenessDetected, setLivenessDetected] = useState(false);
+  const livenessTriggeredRef = useRef(false);
+
   const [currentTime, setCurrentTime] = useState(new Date());
   const [clockInTime, setClockInTime] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
@@ -72,6 +88,48 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   const scanLineAnim = useRef(new Animated.Value(0)).current;
   const flashAnim = useRef(new Animated.Value(0)).current;
   const [snapSound, setSnapSound] = useState<Audio.Sound | null>(null);
+
+  // --- LIVENESS DETECTION LOGIC (ML KIT) ---
+  const { detectFaces } = useFaceDetector({
+    ...FaceDetectorDefaultProps,
+    classificationMode: 'all', // Required for Eye Open and Smile probabilities
+    performanceMode: 'fast',
+  });
+
+  const onLivenessDetected = Worklets.createRunOnJS(() => {
+    if (!livenessTriggeredRef.current && qrVerified && attendanceAction === 'clock_in') {
+      setLivenessDetected(true);
+      playSnapSound();
+      handleAttendance(); // Trigger verification on liveness (smile or blink)
+      livenessTriggeredRef.current = true;
+    }
+  });
+
+  const frameProcessor = useFrameProcessor((frame) => {
+    'worklet';
+    const faces = detectFaces(frame);
+    if (faces.length > 0) {
+      const face = faces[0];
+      
+      // UX Improvement: Detect Smile OR Blink
+      const isSmiling = (face.smilingProbability || 0) > 0.7;
+      const isBlinking = (face.leftEyeOpenProbability || 1) < 0.3 && (face.rightEyeOpenProbability || 1) < 0.3;
+
+      if (isSmiling || isBlinking) {
+        onLivenessDetected();
+      }
+    }
+  }, [qrVerified, attendanceAction]);
+
+  // --- QR SCANNER LOGIC (VISION CAMERA) ---
+  const codeScanner = useCodeScanner({
+    codeTypes: ['qr'],
+    onCodeScanned: (codes) => {
+      if (codes.length > 0 && codes[0].value) {
+        handleBarcodeScanned({ data: codes[0].value });
+      }
+    }
+  });
 
   useEffect(() => {
     async function loadSound() {
@@ -148,10 +206,10 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   }, []);
 
   useEffect(() => {
-    if (permission && !permission.granted) {
+    if (!hasPermission) {
       requestPermission();
     }
-  }, [permission, requestPermission]);
+  }, [hasPermission, requestPermission]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -273,6 +331,8 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     setWelcomeName(null);
     setSelectedUser(null);
     setAttendanceAction('clock_in');
+    setLivenessDetected(false);
+    livenessTriggeredRef.current = false;
     lastScanRef.current = { data: null, ts: 0 };
     touchlessTriggeredRef.current = false;
     qrProcessingRef.current = false;
@@ -383,9 +443,9 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
             ? 'This user already has an active clock-in. Press CLOCK OUT to save the attendance offline.'
             : 'This user already has an active clock-in. Press CLOCK OUT to finish logout.'
           : offlineModeEnabled
-          ? 'QR recognized. Capture the face photo and this attendance will be saved to offline sync.'
-          : 'Look at the camera and press CLOCK IN to verify your face and record your attendance.',
-        'A new QR scan automatically switches to the next user.'
+          ? 'QR recognized. SMILE or BLINK to capture the face photo automatically.'
+          : 'SMILE or BLINK to capture your face and verify attendance automatically.',
+        'No need to touch the screen. Just look at the camera!'
       );
     } catch (e: any) {
       console.log('[QR] Validation error', e);
@@ -398,7 +458,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     }
   };
 
-  const verifyFace = async (photoUri: string) => {
+  const verifyFace = async (photoUri1: string, photoUri2?: string) => {
     let userId = null;
     try {
       userId = await AsyncStorage.getItem('userId');
@@ -410,16 +470,31 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
       throw new Error('User not logged in (missing userId). Please log in again.');
     }
 
-    console.log('[Verify] Sending face to backend', { userId });
+    console.log('[Verify] Sending face to backend', { userId, hasLiveness: !!photoUri2 });
     const form = new FormData();
+    
+    // Main Photo for Recognition
     form.append(
       'photo',
       {
-        uri: photoUri,
-        name: 'selfie.jpg',
+        uri: photoUri1,
+        name: 'selfie_1.jpg',
         type: 'image/jpeg',
       } as any
     );
+
+    // Secondary Photo for Liveness Check (Micro-movement detection)
+    if (photoUri2) {
+      form.append(
+        'photo_liveness',
+        {
+          uri: photoUri2,
+          name: 'selfie_2.jpg',
+          type: 'image/jpeg',
+        } as any
+      );
+    }
+
     const requestTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     form.append('clock_time', requestTime);
     form.append('user_id', userId);
@@ -449,7 +524,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     }
 
     if (response.status === 401 && json.message) {
-      console.log('[Verify] Face mismatch', json);
+      console.log('[Verify] Face mismatch or Liveness failure', json);
       return {
         ok: false,
         verified: false,
@@ -457,6 +532,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         hint: json.hint,
         match_score: json.match_score,
         threshold: json.threshold,
+        liveness_score: json.liveness_score,
       };
     }
 
@@ -473,23 +549,35 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
 
   const runVerification = useCallback(async () => {
     if (!cameraRef.current) throw new Error('Camera not ready');
-    const photo = await cameraRef.current.takePictureAsync({
-      quality: 0.5,
-      skipProcessing: true,
-      base64: false,
+    
+    // SHOT 1
+    const photo1 = await cameraRef.current.takePicture({
+      qualityPriority: 'balanced',
+      flash: 'off',
     });
-    if (!photo?.uri) throw new Error('No image captured');
+    if (!photo1?.path) throw new Error('No image captured (Shot 1)');
+
+    // BURST DELAY (300ms) - Invisible micro-movement check
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // SHOT 2
+    const photo2 = await cameraRef.current.takePicture({
+      qualityPriority: 'balanced',
+      flash: 'off',
+    });
+    if (!photo2?.path) throw new Error('No image captured (Shot 2)');
+
     if (offlineModeEnabled) {
       return {
         ok: true,
         verified: true,
         offlineCaptured: true,
-        message: 'Face photo captured offline.',
-        photoUri: photo.uri,
+        message: 'Face photos captured offline.',
+        photoUri: `file://${photo1.path}`,
       };
     }
 
-    return verifyFace(photo.uri);
+    return verifyFace(`file://${photo1.path}`, `file://${photo2.path}`);
   }, [offlineModeEnabled]);
 
   const recordAttendance = useCallback(async (action: 'clock_in' | 'clock_out') => {
@@ -564,7 +652,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
       return;
     }
 
-    if (!permission?.granted) {
+    if (!hasPermission) {
       showModal('warning', 'Camera Required', 'Please allow camera access to verify your identity.', '');
       return;
     }
@@ -574,7 +662,6 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     setIsVerifying(true);
 
     try {
-      // Bypassing face verification for clock-out as requested. Logic remains in runVerification().
       let result;
       if (attendanceAction === 'clock_out') {
         result = { ok: true, verified: true, message: 'Clock out authorized.' };
@@ -672,7 +759,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   }, [
     attendanceAction,
     clearStoredSession,
-    permission?.granted,
+    hasPermission,
     qrVerified,
     recordAttendance,
     resetAttendanceFlow,
@@ -692,16 +779,14 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
 
     touchlessTriggeredRef.current = true;
     const timer = setTimeout(() => {
-      handleAttendance().catch((error) => {
-        console.error('Touchless verification error:', error);
-        touchlessTriggeredRef.current = false;
-      });
+      // In vision camera version, touchless is replaced by BLINK.
+      // But we still allow manual click or wait for blink.
     }, 3500);
 
     return () => clearTimeout(timer);
   }, [handleAttendance, isVerifying, qrVerified, touchlessEnabled]);
 
-  if (isLoading || !permission) {
+  if (isLoading || !device) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#F27121" />
@@ -709,7 +794,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     );
   }
 
-  if (!permission.granted) {
+  if (!hasPermission) {
     return (
       <View style={styles.loadingContainer}>
         <Text>Camera access needed.</Text>
@@ -724,12 +809,14 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      <CameraView
+      <Camera
         ref={cameraRef}
         style={styles.fullScreenCamera}
-        facing="front"
-        barcodeScannerSettings={{ barcodeTypes: ['qr'] as any }}
-        onBarcodeScanned={handleBarcodeScanned}
+        device={device}
+        isActive={true}
+        photo={true}
+        codeScanner={codeScanner}
+        frameProcessor={frameProcessor}
       />
 
       <Animated.View 
@@ -796,7 +883,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
 
               <View style={[styles.stepPill, qrVerified && !isVerifying && styles.stepPillActive, isVerifying && styles.stepPillDone]}>
                 <Text style={[styles.stepPillText, qrVerified && styles.stepPillTextActive]}>
-                  2. SCAN FACE
+                  2. SMILE / BLINK
                 </Text>
                 {qrVerified && !isVerifying && <View style={styles.activeDot} />}
               </View>
@@ -853,13 +940,15 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
                   ]}
                 />
                 <MaterialCommunityIcons 
-                  name="face-recognition" 
+                  name={livenessDetected ? "emoticon-happy-outline" : "face-recognition"} 
                   size={120} 
-                  color="rgba(255,255,255,0.2)" 
+                  color={livenessDetected ? "#28a745" : "rgba(255,255,255,0.2)"} 
                   style={styles.faceIconBackground}
                 />
               </View>
-              <Text style={styles.scanInstructionText}>POSITION YOUR FACE</Text>
+              <Text style={[styles.scanInstructionText, livenessDetected && {color: '#28a745'}]}>
+                {livenessDetected ? 'AUTHENTICATED!' : 'SMILE OR BLINK TO START'}
+              </Text>
             </View>
           )}
         </View>
