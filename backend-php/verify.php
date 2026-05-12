@@ -95,15 +95,15 @@ $lScore = null;
 
 if ($photoLivenessBase64 && $faceppConfigured && function_exists('facepp_compare_faces')) {
     $livenessResult = facepp_compare_faces($photoBase64, $photoLivenessBase64);
-    
+
     if ($livenessResult !== null) {
         $lScore = $livenessResult['confidence'];
-        
+
         // LOGIC UPDATE:
         // - A handheld photo of a photo usually scores 0.995 to 0.997.
         // - By setting the limit to 0.992 (99.2%), we block most spoofing attempts.
         // - A real human should be in the 0.85 to 0.98 range.
-        
+
         if ($lScore >= 0.992) {
             http_response_code(401);
             echo json_encode([
@@ -115,19 +115,19 @@ if ($photoLivenessBase64 && $faceppConfigured && function_exists('facepp_compare
             ]);
             exit;
         }
-        
+
         if ($lScore < 0.80) {
             http_response_code(401);
             echo json_encode([
                 'ok' => false,
                 'message' => 'Liveness check failed.',
-                'hint' => 'Please hold the tablet steady and face the camera.',
+                'hint' => 'Please hold the tablet steady and face the camera and Smile :).',
                 'liveness_score' => $lScore,
                 'debug_info' => 'Similarity too low (' . ($lScore * 100) . '%) - face moved too much or changed.'
             ]);
             exit;
         }
-        
+
         error_log("[Verify] Liveness Passed: Score " . $lScore);
     }
 }
@@ -214,7 +214,7 @@ if ($luxandConfigured && function_exists('luxand_verify_faces')) {
 */
 
 // Default: provider not configured and verification is required.
-$verifyMode = strtolower(trim((string)(getenv('FACE_VERIFY_MODE') ?: 'required')));
+$verifyMode = strtolower(trim((string) (getenv('FACE_VERIFY_MODE') ?: 'required')));
 http_response_code(501);
 echo json_encode([
     'ok' => false,

@@ -955,7 +955,7 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
 
               <View style={[styles.stepPill, qrVerified && !isVerifying && styles.stepPillActive, isVerifying && styles.stepPillDone]}>
                 <Text style={[styles.stepPillText, qrVerified && styles.stepPillTextActive]}>
-                  2. SMILE / BLINK
+                  2. SCAN FACE
                 </Text>
                 {qrVerified && !isVerifying && <View style={styles.activeDot} />}
               </View>
@@ -1033,8 +1033,8 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
                 {isVerifying
                   ? 'Please wait while we verify your identity'
                   : faceCountdown > 0
-                  ? 'Position your face inside the frame'
-                  : 'Face the camera directly \u2022 Keep eyes open \u2022 Stay still'}
+                    ? 'Position your face inside the frame'
+                    : 'Face the camera directly \u2022 Keep eyes open \u2022 Stay still  \u2022  SMILE :)'}
               </Text>
             </View>
           )}
@@ -1073,24 +1073,26 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
             </View>
           )}
 
-          <View style={styles.footerButtons}>
-            <TouchableOpacity
-              style={[
-                styles.mainActionButton,
-                { backgroundColor: isClockingOut ? '#C0392B' : '#F27121', opacity: (isVerifying || !qrVerified) ? 0.6 : 1 },
-              ]}
-              onPress={handleAttendance}
-              disabled={isVerifying || !qrVerified}
-            >
-              {isVerifying ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text style={styles.mainActionButtonText}>
-                  {!qrVerified ? 'SCAN QR FIRST' : (isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN')}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          {!touchlessEnabled && (
+            <View style={styles.footerButtons}>
+              <TouchableOpacity
+                style={[
+                  styles.mainActionButton,
+                  { backgroundColor: isClockingOut ? '#C0392B' : '#F27121', opacity: (isVerifying || !qrVerified) ? 0.6 : 1 },
+                ]}
+                onPress={handleAttendance}
+                disabled={isVerifying || !qrVerified}
+              >
+                {isVerifying ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text style={styles.mainActionButtonText}>
+                    {!qrVerified ? 'SCAN QR FIRST' : (isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN')}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </SafeAreaView>
 
