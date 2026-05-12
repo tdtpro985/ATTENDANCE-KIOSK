@@ -57,8 +57,8 @@ function optimizeImageForFacePP(string $imageData): ?string
     $width = imagesx($img);
     $height = imagesy($img);
     
-    // Calculate new dimensions (max 800px on longest side for speed)
-    $maxDimension = 800;
+    // Calculate new dimensions (max 600px on longest side for extreme upload speed)
+    $maxDimension = 600;
     if ($width > $maxDimension || $height > $maxDimension) {
         if ($width > $height) {
             $newWidth = $maxDimension;

@@ -91,6 +91,7 @@ if (!$userId) {
 // 1. LIVENESS CHECK (Micro-Movement)
 // 100% FREE security: Comparing Shot 1 vs Shot 2 to catch static photos.
 $faceppConfigured = function_exists('facepp_api_configured') ? facepp_api_configured() : false;
+$lScore = null;
 
 if ($photoLivenessBase64 && $faceppConfigured && function_exists('facepp_compare_faces')) {
     $livenessResult = facepp_compare_faces($photoBase64, $photoLivenessBase64);
@@ -187,7 +188,8 @@ if ($faceppConfigured && function_exists('facepp_compare_faces')) {
             'ok' => true,
             'message' => 'Face matched',
             'match_score' => $result['confidence'],
-            'threshold' => $result['threshold']
+            'threshold' => $result['threshold'],
+            'liveness_score' => $lScore
         ]);
         exit;
     } else {
@@ -196,7 +198,8 @@ if ($faceppConfigured && function_exists('facepp_compare_faces')) {
             'ok' => false,
             'message' => 'Face did not match',
             'match_score' => $result['confidence'],
-            'threshold' => $result['threshold']
+            'threshold' => $result['threshold'],
+            'liveness_score' => $lScore
         ]);
         exit;
     }

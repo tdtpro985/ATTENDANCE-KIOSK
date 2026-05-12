@@ -45,3 +45,6 @@ storage/*.json
 # generated native folders
 /ios
 /android
+
+# memory files
+memory_*.md

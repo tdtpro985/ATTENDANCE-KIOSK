@@ -56,9 +56,14 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   const device = useCameraDevice('front');
   const cameraRef = useRef<Camera>(null);
 
-  // Liveness Detection States (Smile or Blink)
-  const [livenessDetected, setLivenessDetected] = useState(false);
   const livenessTriggeredRef = useRef(false);
+  const cameraReadyRef = useRef(false);
+  const countdownRef = useRef(3);
+  const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modalContextRef = useRef<'qr_success' | 'other'>('other');
+
+  const [faceCountdown, setFaceCountdown] = useState(3);
+  const [countdownActive, setCountdownActive] = useState(false);
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [clockInTime, setClockInTime] = useState('');
@@ -92,30 +97,28 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   // --- LIVENESS DETECTION LOGIC (ML KIT) ---
   const { detectFaces } = useFaceDetector({
     ...FaceDetectorDefaultProps,
-    classificationMode: 'all', // Required for Eye Open and Smile probabilities
+    classificationMode: 'all',
     performanceMode: 'fast',
   });
 
   const onLivenessDetected = Worklets.createRunOnJS(() => {
-    if (!livenessTriggeredRef.current && qrVerified && attendanceAction === 'clock_in') {
-      setLivenessDetected(true);
+    if (!livenessTriggeredRef.current && qrVerified && attendanceAction === 'clock_in' && countdownRef.current <= 0) {
       playSnapSound();
-      handleAttendance(); // Trigger verification on liveness (smile or blink)
+      handleAttendance();
       livenessTriggeredRef.current = true;
     }
   });
 
+  // Liveness: triggers instantly when a face with at least one open eye is detected.
+  // No smile or blink gesture required.
   const frameProcessor = useFrameProcessor((frame) => {
     'worklet';
     const faces = detectFaces(frame);
     if (faces.length > 0) {
       const face = faces[0];
-
-      // UX Improvement: Detect Smile OR Blink
-      const isSmiling = (face.smilingProbability || 0) > 0.7;
-      const isBlinking = (face.leftEyeOpenProbability || 1) < 0.3 && (face.rightEyeOpenProbability || 1) < 0.3;
-
-      if (isSmiling || isBlinking) {
+      const leftOpen = (face.leftEyeOpenProbability || 0) > 0.4;
+      const rightOpen = (face.rightEyeOpenProbability || 0) > 0.4;
+      if (leftOpen || rightOpen) {
         onLivenessDetected();
       }
     }
@@ -186,6 +189,18 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     }
   }, [qrVerified, isVerifying, scanLineAnim]);
 
+  // Countdown: 3→2→1→0 after QR verified, before liveness activates
+  useEffect(() => {
+    if (!countdownActive || !qrVerified || attendanceAction !== 'clock_in' || isVerifying) return;
+    if (faceCountdown <= 0) return;
+    const timer = setTimeout(() => {
+      const next = faceCountdown - 1;
+      setFaceCountdown(next);
+      countdownRef.current = next;
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [countdownActive, qrVerified, attendanceAction, isVerifying, faceCountdown]);
+
   useEffect(() => {
     let active = true;
     AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, OFFLINE_MODE_KEY])
@@ -220,8 +235,27 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
   const formattedDate = currentTime.toDateString();
   const isClockingOut = attendanceAction === 'clock_out';
 
+  const closeModal = useCallback(() => {
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+    Animated.timing(scaleAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowResultModal(false);
+      scaleAnim.setValue(0);
+      if (modalContextRef.current === 'qr_success') {
+        setCountdownActive(true);
+        modalContextRef.current = 'other';
+      }
+    });
+  }, [scaleAnim]);
+
   const showModal = useCallback(
-    (type: 'success' | 'error' | 'info' | 'warning', title: string, message: string, hint: string) => {
+    (type: 'success' | 'error' | 'info' | 'warning', title: string, message: string, hint: string, autoCloseMs?: number) => {
       setModalType(type);
       setModalTitle(title);
       setModalMessage(message);
@@ -234,20 +268,17 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         tension: 100,
         useNativeDriver: true,
       }).start();
+
+      if (autoCloseMs) {
+        if (autoCloseTimerRef.current) clearTimeout(autoCloseTimerRef.current);
+        autoCloseTimerRef.current = setTimeout(() => {
+          closeModal();
+        }, autoCloseMs);
+      }
     },
-    [scaleAnim]
+    [scaleAnim, closeModal]
   );
 
-  const closeModal = useCallback(() => {
-    Animated.timing(scaleAnim, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => {
-      setShowResultModal(false);
-      scaleAnim.setValue(0);
-    });
-  }, [scaleAnim]);
 
   const handleOfflineModeChange = useCallback(async (next: boolean) => {
     setOfflineModeEnabled(next);
@@ -331,8 +362,13 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     setWelcomeName(null);
     setSelectedUser(null);
     setAttendanceAction('clock_in');
-    setLivenessDetected(false);
-    livenessTriggeredRef.current = false;
+    setFaceCountdown(3);
+    countdownRef.current = 3;
+    setCountdownActive(false);
+    modalContextRef.current = 'other';
+    // livenessTriggeredRef intentionally NOT reset here — keeps it true to block
+    // any late frame-processor calls during the re-render window after success.
+    // It is reset in handleBarcodeScanned when the next QR session starts.
     lastScanRef.current = { data: null, ts: 0 };
     touchlessTriggeredRef.current = false;
     qrProcessingRef.current = false;
@@ -433,20 +469,39 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
       setClockInTime(existingSession?.clockInTime || '');
       setAttendanceAction(existingSession ? 'clock_out' : 'clock_in');
       setQrVerified(true);
+      setFaceCountdown(3);
+      countdownRef.current = 3;
+      // Reset liveness for this new session so the face scan triggers fresh.
+      livenessTriggeredRef.current = false;
       touchlessTriggeredRef.current = false;
 
-      showModal(
-        'success',
-        'QR Code Verified',
-        existingSession
-          ? offlineModeEnabled
-            ? 'This user already has an active clock-in. Press CLOCK OUT to save the attendance offline.'
-            : 'This user already has an active clock-in. Press CLOCK OUT to finish logout.'
-          : offlineModeEnabled
-            ? 'QR recognized. SMILE or BLINK to capture the face photo automatically.'
-            : 'SMILE or BLINK to capture your face and verify attendance automatically.',
-        'No need to touch the screen. Just look at the camera!'
-      );
+      if (touchlessEnabled) {
+        // Touchless: show modal briefly for 2 seconds then auto-start countdown
+        modalContextRef.current = 'qr_success';
+        showModal(
+          'success',
+          'QR Code Verified',
+          existingSession
+            ? `Welcome back, ${resolved.name || resolved.username}! Clock-out starting...`
+            : `Hello, ${resolved.name || resolved.username}! Get ready for face scan.`,
+          '',
+          2000
+        );
+      } else {
+        modalContextRef.current = 'qr_success';
+        showModal(
+          'success',
+          'QR Code Verified',
+          existingSession
+            ? offlineModeEnabled
+              ? 'This user already has an active clock-in. Press CLOCK OUT to save the attendance offline.'
+              : 'This user already has an active clock-in. Press CLOCK OUT to finish logout.'
+            : offlineModeEnabled
+              ? 'QR recognized. Face the camera to verify attendance.'
+              : 'QR recognized. Face the camera to verify attendance automatically.',
+          'No need to touch the screen. Just look at the camera!'
+        );
+      }
     } catch (e: any) {
       console.log('[QR] Validation error', e);
       setQrVerified(false);
@@ -552,17 +607,17 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
 
     // SHOT 1
     const photo1 = await cameraRef.current.takePhoto({
-      qualityPrioritization: 'balanced',
+      qualityPrioritization: 'speed',
       flash: 'off',
     });
     if (!photo1?.path) throw new Error('No image captured (Shot 1)');
 
-    // BURST DELAY (300ms) - Invisible micro-movement check
-    await new Promise(resolve => setTimeout(resolve, 300));
+    // BURST DELAY (200ms) - Invisible micro-movement check optimized for speed
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     // SHOT 2
     const photo2 = await cameraRef.current.takePhoto({
-      qualityPrioritization: 'balanced',
+      qualityPrioritization: 'speed',
       flash: 'off',
     });
     if (!photo2?.path) throw new Error('No image captured (Shot 2)');
@@ -667,6 +722,12 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         result = { ok: true, verified: true, message: 'Clock out authorized.' };
       } else {
         result = await runVerification();
+        if (result?.liveness_score != null) {
+          console.log(`[Verify] Liveness Accuracy: ${(result.liveness_score * 100).toFixed(2)}%`);
+        }
+        if (result?.match_score != null) {
+          console.log(`[Verify] Identity Match Accuracy: ${(result.match_score * 100).toFixed(2)}%`);
+        }
       }
       const action = attendanceAction;
 
@@ -715,12 +776,8 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         showModal(
           'success',
           offlineModeEnabled
-            ? action === 'clock_in'
-              ? 'Saved For Sync'
-              : 'Clock Out Saved For Sync'
-            : action === 'clock_in'
-              ? 'Clock In Complete'
-              : 'Clock Out Complete',
+            ? action === 'clock_in' ? 'Saved For Sync' : 'Clock Out Saved For Sync'
+            : action === 'clock_in' ? 'Clock In Complete' : 'Clock Out Complete',
           offlineModeEnabled
             ? action === 'clock_in'
               ? 'Face captured. This attendance was saved offline. Open LIST OFFLINE and press SYNC NOW when ready.'
@@ -728,22 +785,27 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
             : action === 'clock_in'
               ? result?.message || 'Face verified. Attendance recorded. The scanner is ready for the next user.'
               : result?.message || 'Face verified. Logout recorded. The scanner is ready for the next user.',
-          ''
+          '',
+          touchlessEnabled ? 2000 : undefined
         );
       } else if (result?.verified === false) {
         faceProcessingRef.current = false;
+        livenessTriggeredRef.current = false; // allow retry
         showModal(
           'error',
           'Verification Failed',
           result?.message || 'Face verification failed.',
-          result?.hint || 'Please try again.'
+          result?.hint || 'Please try again.',
+          touchlessEnabled ? 2000 : undefined
         );
       } else {
         faceProcessingRef.current = false;
-        showModal('error', 'Verification Failed', 'Please try again.', '');
+        livenessTriggeredRef.current = false; // allow retry
+        showModal('error', 'Verification Failed', 'Please try again.', '', touchlessEnabled ? 2000 : undefined);
       }
     } catch (e: any) {
       faceProcessingRef.current = false;
+      livenessTriggeredRef.current = false; // allow retry
       console.error('Verification error:', e);
       showModal(
         'error',
@@ -751,7 +813,8 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
         e?.message || 'Please try again.',
         offlineModeEnabled
           ? 'Connect once to refresh employee QR cache if this device has never seen that QR before.'
-          : 'Check your internet connection'
+          : 'Check your internet connection',
+        touchlessEnabled ? 2000 : undefined
       );
     } finally {
       setIsVerifying(false);
@@ -772,19 +835,16 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
     storeClockInNotification,
   ]);
 
+  // Touchless mode: auto-trigger clock-out after QR verified (face scan handles clock-in automatically)
   useEffect(() => {
-    if (!qrVerified || !touchlessEnabled || isVerifying || touchlessTriggeredRef.current) {
-      return;
-    }
-
+    if (!qrVerified || !touchlessEnabled || isVerifying || touchlessTriggeredRef.current) return;
+    if (attendanceAction !== 'clock_out') return; // clock-in is handled by face detection
     touchlessTriggeredRef.current = true;
     const timer = setTimeout(() => {
-      // In vision camera version, touchless is replaced by BLINK.
-      // But we still allow manual click or wait for blink.
-    }, 3500);
-
+      handleAttendance();
+    }, 1500);
     return () => clearTimeout(timer);
-  }, [handleAttendance, isVerifying, qrVerified, touchlessEnabled]);
+  }, [attendanceAction, handleAttendance, isVerifying, qrVerified, touchlessEnabled]);
 
   if (isLoading || !device) {
     return (
@@ -936,30 +996,45 @@ export default function ShowQRScan({ onBack, onOpenOffline }: Props) {
                 <View style={[styles.corner, styles.cornerTopRight]} />
                 <View style={[styles.corner, styles.cornerBottomLeft]} />
                 <View style={[styles.corner, styles.cornerBottomRight]} />
-                <Animated.View
-                  style={[
-                    styles.scanLine,
-                    {
-                      transform: [
-                        {
-                          translateY: scanLineAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, 240],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                />
-                <MaterialCommunityIcons
-                  name={livenessDetected ? "emoticon-happy-outline" : "face-recognition"}
-                  size={120}
-                  color={livenessDetected ? "#28a745" : "rgba(255,255,255,0.2)"}
-                  style={styles.faceIconBackground}
-                />
+                {!isVerifying && (
+                  <Animated.View
+                    style={[
+                      styles.scanLine,
+                      {
+                        transform: [
+                          {
+                            translateY: scanLineAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, 240],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  />
+                )}
+                {isVerifying ? (
+                  <ActivityIndicator size={80} color="#F27121" style={styles.faceIconBackground} />
+                ) : faceCountdown > 0 ? (
+                  <Text style={styles.countdownText}>{faceCountdown}</Text>
+                ) : (
+                  <MaterialCommunityIcons
+                    name="face-recognition"
+                    size={120}
+                    color="rgba(255,255,255,0.2)"
+                    style={styles.faceIconBackground}
+                  />
+                )}
               </View>
-              <Text style={[styles.scanInstructionText, livenessDetected && { color: '#28a745' }]}>
-                {livenessDetected ? 'AUTHENTICATED!' : 'SMILE OR BLINK TO START'}
+              <Text style={styles.scanInstructionText}>
+                {isVerifying ? 'VERIFYING IDENTITY...' : faceCountdown > 0 ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
+              </Text>
+              <Text style={styles.faceHintText}>
+                {isVerifying
+                  ? 'Please wait while we verify your identity'
+                  : faceCountdown > 0
+                  ? 'Position your face inside the frame'
+                  : 'Face the camera directly \u2022 Keep eyes open \u2022 Stay still'}
               </Text>
             </View>
           )}
@@ -1310,6 +1385,28 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
+  },
+  countdownText: {
+    position: 'absolute',
+    top: 40,
+    fontSize: 100,
+    fontWeight: '900',
+    color: '#F27121',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+  faceHintText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 8,
+    letterSpacing: 0.5,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
 
   // FOOTER
