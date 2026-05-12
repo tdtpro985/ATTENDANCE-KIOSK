@@ -48,22 +48,32 @@ if (file_exists(__DIR__ . '/luxand_face_api.php')) {
     require_once __DIR__ . '/luxand_face_api.php';
 }
 
-// Read uploaded file
+// Read uploaded files
 if (empty($_FILES['photo']) || empty($_FILES['photo']['tmp_name'])) {
     http_response_code(400);
     echo json_encode(['ok' => false, 'message' => 'Missing photo file']);
     exit;
 }
 
-$tmp = $_FILES['photo']['tmp_name'];
-$photoData = @file_get_contents($tmp);
-if ($photoData === false) {
+$tmp1 = $_FILES['photo']['tmp_name'];
+$photoData1 = @file_get_contents($tmp1);
+if ($photoData1 === false) {
     http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Failed to read uploaded file']);
+    echo json_encode(['ok' => false, 'message' => 'Failed to read primary photo']);
     exit;
 }
 
-$photoBase64 = base64_encode($photoData);
+$photoBase64 = base64_encode($photoData1);
+
+// Optional: Liveness Photo (Shot 2)
+$photoLivenessBase64 = null;
+if (!empty($_FILES['photo_liveness']) && !empty($_FILES['photo_liveness']['tmp_name'])) {
+    $tmp2 = $_FILES['photo_liveness']['tmp_name'];
+    $photoData2 = @file_get_contents($tmp2);
+    if ($photoData2 !== false) {
+        $photoLivenessBase64 = base64_encode($photoData2);
+    }
+}
 
 $userId = isset($_POST['user_id']) ? trim($_POST['user_id']) : null;
 
@@ -76,6 +86,49 @@ if (!$userId) {
         'hint' => 'Send user_id from the logged-in session so verification matches the correct account.'
     ]);
     exit;
+}
+
+// 1. LIVENESS CHECK (Micro-Movement)
+// 100% FREE security: Comparing Shot 1 vs Shot 2 to catch static photos.
+$faceppConfigured = function_exists('facepp_api_configured') ? facepp_api_configured() : false;
+
+if ($photoLivenessBase64 && $faceppConfigured && function_exists('facepp_compare_faces')) {
+    $livenessResult = facepp_compare_faces($photoBase64, $photoLivenessBase64);
+    
+    if ($livenessResult !== null) {
+        $lScore = $livenessResult['confidence'];
+        
+        // LOGIC UPDATE:
+        // - A handheld photo of a photo usually scores 0.995 to 0.997.
+        // - By setting the limit to 0.992 (99.2%), we block most spoofing attempts.
+        // - A real human should be in the 0.85 to 0.98 range.
+        
+        if ($lScore >= 0.992) {
+            http_response_code(401);
+            echo json_encode([
+                'ok' => false,
+                'message' => 'Security Alert: Static photo detected.',
+                'hint' => 'Please face the camera and blink. Handheld photos or screen captures are not allowed.',
+                'liveness_score' => $lScore,
+                'debug_info' => 'Similarity too high (' . ($lScore * 100) . '%) - looks like a static image.'
+            ]);
+            exit;
+        }
+        
+        if ($lScore < 0.80) {
+            http_response_code(401);
+            echo json_encode([
+                'ok' => false,
+                'message' => 'Liveness check failed.',
+                'hint' => 'Please hold the tablet steady and face the camera.',
+                'liveness_score' => $lScore,
+                'debug_info' => 'Similarity too low (' . ($lScore * 100) . '%) - face moved too much or changed.'
+            ]);
+            exit;
+        }
+        
+        error_log("[Verify] Liveness Passed: Score " . $lScore);
+    }
 }
 
 // If user_id provided, fetch stored face from Supabase
@@ -118,9 +171,7 @@ if (!$storedFaceBase64) {
     exit;
 }
 
-// Use Face++ compare when properly configured
-$faceppConfigured = function_exists('facepp_api_configured') ? facepp_api_configured() : false;
-
+// 2. IDENTITY VERIFICATION (Existing logic)
 if ($faceppConfigured && function_exists('facepp_compare_faces')) {
     $result = facepp_compare_faces($photoBase64, $storedFaceBase64);
     if ($result === null) {
@@ -151,37 +202,13 @@ if ($faceppConfigured && function_exists('facepp_compare_faces')) {
     }
 }
 
-// Use Luxand compare when properly configured
+// (RESERVED: Placeholder for other providers like Luxand)
+/*
 $luxandConfigured = function_exists('luxand_face_api_configured') ? luxand_face_api_configured() : false;
 if ($luxandConfigured && function_exists('luxand_verify_faces')) {
-    $score = luxand_verify_faces($photoBase64, $storedFaceBase64);
-    if ($score < 0) {
-        $err = function_exists('luxand_get_last_error') ? luxand_get_last_error() : 'Luxand comparison failed';
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'message' => 'Face comparison error', 'detail' => $err]);
-        exit;
-    }
-
-    $threshold = 0.75;
-    if ($score >= $threshold) {
-        echo json_encode([
-            'ok' => true,
-            'message' => 'Face matched',
-            'match_score' => $score,
-            'threshold' => $threshold
-        ]);
-        exit;
-    } else {
-        http_response_code(401);
-        echo json_encode([
-            'ok' => false,
-            'message' => 'Face did not match',
-            'match_score' => $score,
-            'threshold' => $threshold
-        ]);
-        exit;
-    }
+    // ... Luxand verification logic here
 }
+*/
 
 // Default: provider not configured and verification is required.
 $verifyMode = strtolower(trim((string)(getenv('FACE_VERIFY_MODE') ?: 'required')));

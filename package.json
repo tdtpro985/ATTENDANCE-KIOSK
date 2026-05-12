@@ -4,8 +4,8 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "build:android": "eas build --platform android --profile preview"
   },
@@ -17,13 +17,17 @@
     "expo-location": "~19.0.8",
     "expo-screen-orientation": "~9.0.9",
     "expo-status-bar": "~3.0.9",
-    "react": "19.1.0",
-    "react-native": "0.81.5",
+    "react": "18.3.1",
+    "react-native": "0.77.1",
     "react-native-maps": "1.20.1",
-    "react-native-safe-area-context": "~5.6.0"
+    "react-native-reanimated": "~3.16.1",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-vision-camera": "4.6.4",
+    "react-native-vision-camera-face-detector": "^1.10.2",
+    "react-native-worklets-core": "^1.6.3"
   },
   "devDependencies": {
-    "@types/react": "~19.1.10",
+    "@types/react": "~18.3.12",
     "typescript": "~5.9.2"
   },
   "private": true

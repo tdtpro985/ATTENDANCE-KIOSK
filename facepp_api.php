@@ -295,6 +295,7 @@ function facepp_compare_faces(string $image1Base64, string $image2Base64): ?arra
         'threshold_raw' => $threshold,
         'similar' => $isSimilar,
         'api' => 'facepp',
+        'raw_score' => $confidence // Add this for precise tuning
     ];
 }
 
