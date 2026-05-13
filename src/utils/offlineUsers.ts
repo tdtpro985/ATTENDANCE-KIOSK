@@ -8,23 +8,30 @@ export type CachedOfflineUser = {
   username: string;
   name?: string | null;
   qrCode?: string | null;
+  profile_picture?: string | null;
+  role?: string | null;
+  department?: string | null;
 };
 
 type EmployeesPayload = {
   ok?: boolean;
   data?: Array<{
     name?: string | null;
+    role?: string | null;
     log_id?: number | string | null;
+    departments?: { name?: string | null } | null;
     accounts?:
       | {
           log_id?: number | string | null;
           username?: string | null;
           qr_code?: string | null;
+          profile_picture?: string | null;
         }
       | Array<{
           log_id?: number | string | null;
           username?: string | null;
           qr_code?: string | null;
+          profile_picture?: string | null;
         }>
       | null;
   }>;
@@ -92,7 +99,7 @@ export async function refreshOfflineUserCache(): Promise<CachedOfflineUser[]> {
 
   const users = payload.data
     .map((employee): CachedOfflineUser | null => {
-      const account = normalizeAccount(employee.accounts);
+      const account = normalizeAccount(employee.accounts as any);
       const userId = String(account?.log_id ?? employee.log_id ?? '').trim();
       const username = String(account?.username ?? '').trim();
 
@@ -104,6 +111,9 @@ export async function refreshOfflineUserCache(): Promise<CachedOfflineUser[]> {
         username,
         name: employee.name ?? null,
         qrCode: account?.qr_code?.trim() || null,
+        profile_picture: account?.profile_picture || null,
+        role: employee.role || null,
+        department: employee.departments?.name || null,
       };
     })
     .filter((item): item is CachedOfflineUser => item !== null);
