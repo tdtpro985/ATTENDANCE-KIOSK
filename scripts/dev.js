@@ -43,41 +43,83 @@ function getIPAddress() {
   return fallbackIP || '127.0.0.1';
 }
 
-function startDev() {
-  const ip = getIPAddress();
-  const port = 8000;
-  const backendUrl = `http://${ip}:${port}`;
-
-  console.log(`\n${colors.bright}${colors.green}Verification Successful${colors.reset}`);
-  console.log(`${colors.blue}  [Network]${colors.reset} Detected IP: ${colors.bright}${ip}${colors.reset}`);
-  console.log(`${colors.blue}  [Config] ${colors.reset} Setting BACKEND_URL to ${colors.bright}${backendUrl}${colors.reset}\n`);
-
+function updateBackendConfig(ip) {
   const configDir = path.join(__dirname, '../src/config');
+  const configPath = path.join(configDir, 'backend.ts');
+  const port = 8000;
+
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true });
   }
 
-  const configPath = path.join(configDir, 'backend.ts');
-  const content = `export const BACKEND_URL = '${backendUrl}';\n`;
+  let content = '';
+  if (fs.existsSync(configPath)) {
+    content = fs.readFileSync(configPath, 'utf8');
+    
+    if (content.includes('const IP_ADDRESS =')) {
+      content = content.replace(/const IP_ADDRESS = ['"].*?['"];/, `const IP_ADDRESS = '${ip}';`);
+    } else {
+      const lines = content.split('\n');
+      const newLines = [];
+      let foundActiveUrl = false;
+
+      for (const line of lines) {
+        if (line.trim().startsWith('// export const BACKEND_URL')) {
+          newLines.push(line);
+        } else if (line.trim().startsWith('export const BACKEND_URL') && !foundActiveUrl) {
+          newLines.push(`const IP_ADDRESS = '${ip}';`);
+          newLines.push(`export const BACKEND_URL = \`http://\${IP_ADDRESS}:${port}\`;`);
+          foundActiveUrl = true;
+        } else if (line.trim() || line === '') {
+          newLines.push(line);
+        }
+      }
+
+      if (!foundActiveUrl) {
+        newLines.unshift(`const IP_ADDRESS = '${ip}';`);
+        newLines.push(`export const BACKEND_URL = \`http://\${IP_ADDRESS}:${port}\`;`);
+      }
+      content = newLines.join('\n');
+    }
+  } else {
+    content = `// export const BACKEND_URL = 'https://hris-backend-oav4.onrender.com';\nconst IP_ADDRESS = '${ip}';\nexport const BACKEND_URL = \`http://\${IP_ADDRESS}:${port}\`;\n`;
+  }
+
   fs.writeFileSync(configPath, content);
+}
+
+function startDev() {
+  const ip = getIPAddress();
+  const port = 8000;
+  const rootDir = path.resolve(__dirname, '..');
+
+  console.log(`\n${colors.bright}${colors.green}Verification Successful${colors.reset}`);
+  console.log(`${colors.blue}  [Network]${colors.reset} Detected IP: ${colors.bright}${ip}${colors.reset}`);
+  console.log(`${colors.blue}  [Config] ${colors.reset} Updating src/config/backend.ts with IP_ADDRESS\n`);
+
+  updateBackendConfig(ip);
 
   console.log(`${colors.magenta}-------------------------------------------------${colors.reset}`);
-  console.log(`${colors.bright}${colors.bgBlue}  PHP BACKEND  ${colors.reset} Starting on 0.0.0.0:${port}...`);
   
-  // Resolve DEP0190 by passing the command as a single string when shell: true
-  const phpCmd = `php -S 0.0.0.0:${port} -t backend-php/public`;
-  const php = spawn(phpCmd, {
+  // PHP SERVER: No shell, direct array of arguments to match manual execution exactly
+  console.log(`${colors.bright}${colors.bgBlue}  PHP BACKEND  ${colors.reset} Starting on 0.0.0.0:${port}...`);
+  const publicPath = path.join('backend-php', 'public');
+  
+  const php = spawn('php', ['-S', `0.0.0.0:${port}`, '-t', publicPath], {
     stdio: 'inherit',
-    shell: true
+    cwd: rootDir,
+    env: process.env
   });
 
+  // EXPO: Keep shell for npx convenience
   console.log(`${colors.bright}${colors.bgGreen}  EXPO ANDROID ${colors.reset} Building and launching...`);
   console.log(`${colors.magenta}-------------------------------------------------${colors.reset}\n`);
   
-  const expoCmd = `npx expo run:android`;
-  const expo = spawn(expoCmd, {
+  const expo = spawn('npx', ['expo', 'run:android'], {
     stdio: 'inherit',
-    shell: true
+    shell: true,
+    cwd: rootDir,
+    env: process.env
   });
 
   process.on('SIGINT', () => {
@@ -85,6 +127,15 @@ function startDev() {
     php.kill();
     expo.kill();
     process.exit();
+  });
+
+  // Handle errors if commands fail to start
+  php.on('error', (err) => {
+    console.error(`\n${colors.bright}${colors.white}\x1b[41m  ERROR  \x1b[0m Failed to start PHP server: ${err.message}`);
+  });
+  
+  expo.on('error', (err) => {
+    console.error(`\n${colors.bright}${colors.white}\x1b[41m  ERROR  \x1b[0m Failed to start Expo: ${err.message}`);
   });
 }
 
