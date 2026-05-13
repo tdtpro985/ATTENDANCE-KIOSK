@@ -2,6 +2,20 @@
 
 This project contains the Expo frontend and PHP backend for QR-based attendance with face verification.
 
+## Local Development
+
+To start the development environment, use the automated setup script:
+
+```bash
+npm run dev
+```
+
+### Features:
+- **Automatic IP Detection**: Detects your local IPv4 address (prioritizing Wi-Fi/Wireless) to ensure mobile-to-backend connectivity.
+- **Config Management**: Automatically generates/updates `src/config/backend.ts`.
+- **Server Orchestration**: Concurrently runs the PHP backend and the Expo Android app.
+- **Instant Key Detection**: Quick "y/n" prompt for device verification without requiring the Enter key.
+
 ## Render Environment Setup
 
 Do not commit your real `backend-php/.env` file.
