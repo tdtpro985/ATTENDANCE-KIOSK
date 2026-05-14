@@ -34,7 +34,6 @@ type Props = {
   accentColor: string;
   onBack: () => void;
   onOpenOffline: () => void;
-  onOfflineModeChange: (next: boolean) => void;
   onAttendance: () => void;
 };
 
@@ -58,7 +57,6 @@ export default function FaceScanView({
   accentColor,
   onBack,
   onOpenOffline,
-  onOfflineModeChange,
   onAttendance,
 }: Props) {
   const { width, height } = useWindowDimensions();
@@ -100,13 +98,12 @@ export default function FaceScanView({
                 <Text style={styles.topDate}>{formattedDate}</Text>
               </View>
               <View style={styles.headerRight}>
-                <TouchableOpacity
-                  onPress={() => onOfflineModeChange(!offlineModeEnabled)}
+                <View
                   style={[styles.miniOfflineBadge, offlineModeEnabled && styles.miniOfflineBadgeActive]}
                 >
                   <MaterialCommunityIcons name={offlineModeEnabled ? 'cloud-off' : 'cloud-check'} size={18} color="#fff" />
                   <Text style={styles.miniOfflineText}>{offlineModeEnabled ? 'OFFLINE' : 'ONLINE'}</Text>
-                </TouchableOpacity>
+                </View>
               </View>
             </View>
 
@@ -295,13 +292,12 @@ export default function FaceScanView({
               <Text style={styles.topTimeRight}>{formattedTime}</Text>
               <Text style={styles.topDateRight}>{formattedDate}</Text>
             </View>
-            <TouchableOpacity
-              onPress={() => onOfflineModeChange(!offlineModeEnabled)}
+            <View
               style={[styles.miniOfflineBadge, offlineModeEnabled && styles.miniOfflineBadgeActive]}
             >
               <MaterialCommunityIcons name={offlineModeEnabled ? 'cloud-off' : 'cloud-check'} size={18} color="#fff" />
               <Text style={styles.miniOfflineText}>{offlineModeEnabled ? 'OFFLINE' : 'ONLINE'}</Text>
-            </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.faceScannerAreaRight}>
