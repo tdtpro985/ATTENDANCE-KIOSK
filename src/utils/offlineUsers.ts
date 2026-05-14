@@ -43,11 +43,13 @@ function normalizeAccount(
         log_id?: number | string | null;
         username?: string | null;
         qr_code?: string | null;
+        profile_picture?: string | null;
       }
     | Array<{
         log_id?: number | string | null;
         username?: string | null;
         qr_code?: string | null;
+        profile_picture?: string | null;
       }>
     | null
     | undefined
@@ -150,4 +152,34 @@ export async function resolveOfflineUserFromQr(qrData: string): Promise<CachedOf
   }
 
   return null;
+}
+
+export async function upsertOfflineUserCacheUser(
+  user: CachedOfflineUser
+): Promise<void> {
+  const normalizedUsername = user.username.trim().toLowerCase();
+  const normalizedQr = user.qrCode?.trim() || null;
+  const queue = await getOfflineUserCache();
+
+  const existingIndex = queue.findIndex((item) => {
+    if (item.userId === user.userId) return true;
+    if (item.username.trim().toLowerCase() === normalizedUsername) return true;
+    if (normalizedQr && item.qrCode?.trim() === normalizedQr) return true;
+    return false;
+  });
+
+  const merged: CachedOfflineUser = {
+    ...(existingIndex >= 0 ? queue[existingIndex] : {}),
+    ...user,
+    username: user.username.trim(),
+    qrCode: normalizedQr,
+  };
+
+  if (existingIndex >= 0) {
+    queue[existingIndex] = merged;
+  } else {
+    queue.unshift(merged);
+  }
+
+  await saveOfflineUserCache(queue);
 }

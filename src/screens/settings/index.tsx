@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BACKEND_URL } from '../../config/backend';
-import { OFFLINE_MODE_KEY } from '../../utils/offlineAttendance';
 import { useTheme, Colors } from '../../config/theme';
 
 import { TouchlessModeFeature } from './features/TouchlessModeFeature';
@@ -34,7 +33,7 @@ export default function Settings({ onBack }: Props) {
   const { colors } = useTheme();
   const [isLoading, setIsLoading] = useState(true);
   const [touchlessEnabled, setTouchlessEnabled] = useState(false);
-  const [offlineModeEnabled, setOfflineModeEnabled] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
   const [livenessEnabled, setLivenessEnabled] = useState(true);
   const [backendSettings, setBackendSettings] = useState<BackendSettings>({
     attendance_location: {
@@ -47,7 +46,7 @@ export default function Settings({ onBack }: Props) {
   const loadSettings = useCallback(async () => {
     try {
       const [settingsEntries, response] = await Promise.all([
-        AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, OFFLINE_MODE_KEY, 'settings_liveness_enabled']),
+        AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, 'settings_liveness_enabled']),
         fetch(`${BACKEND_URL}/settings.php`, {
           headers: {
             Accept: 'application/json',
@@ -58,18 +57,21 @@ export default function Settings({ onBack }: Props) {
 
       const localSettings = Object.fromEntries(settingsEntries);
       setTouchlessEnabled(localSettings[TOUCHLESS_SETTING_KEY] === 'true');
-      setOfflineModeEnabled(localSettings[OFFLINE_MODE_KEY] === 'true');
       setLivenessEnabled(localSettings['settings_liveness_enabled'] !== 'false'); // Default to true
 
       const payload = await response.json();
       if (payload?.ok) {
+        setIsOnline(true);
         setBackendSettings((prev) => ({
           ...prev,
           ...payload.settings,
         }));
+      } else {
+        setIsOnline(false);
       }
     } catch (error: any) {
       console.log('Settings load error', error);
+      setIsOnline(false);
     } finally {
       setIsLoading(false);
     }
@@ -85,15 +87,6 @@ export default function Settings({ onBack }: Props) {
       await AsyncStorage.setItem(TOUCHLESS_SETTING_KEY, value ? 'true' : 'false');
     } catch {
       setTouchlessEnabled(!value);
-    }
-  }, []);
-
-  const handleOfflineModeChange = useCallback(async (value: boolean) => {
-    setOfflineModeEnabled(value);
-    try {
-      await AsyncStorage.setItem(OFFLINE_MODE_KEY, value ? 'true' : 'false');
-    } catch {
-      setOfflineModeEnabled(!value);
     }
   }, []);
 
@@ -177,7 +170,7 @@ export default function Settings({ onBack }: Props) {
             saveBackendSettings={saveBackendSettings}
           />
           <AdminAccessFeature saveBackendSettings={saveBackendSettings} />
-          <OfflineRedundancyFeature enabled={offlineModeEnabled} onToggle={handleOfflineModeChange} />
+          <OfflineRedundancyFeature isOnline={isOnline} />
 
           <ThemeSelectorFeature />
           <SettingRow title="System Logout" danger onPress={handleLogout} />

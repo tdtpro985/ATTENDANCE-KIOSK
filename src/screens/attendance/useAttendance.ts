@@ -10,10 +10,10 @@ import {
 import { useFaceDetector } from 'react-native-vision-camera-face-detector';
 import { Worklets } from 'react-native-worklets-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated } from 'react-native';
+import { Alert, Animated, Platform, ToastAndroid } from 'react-native';
 import { BACKEND_URL } from '../../config/backend';
-import { OFFLINE_MODE_KEY, enqueueOfflineAttendance, getOfflineAttendanceQueue } from '../../utils/offlineAttendance';
-import { refreshOfflineUserCache, resolveOfflineUserFromQr } from '../../utils/offlineUsers';
+import { enqueueOfflineAttendance, getOfflineAttendanceQueue } from '../../utils/offlineAttendance';
+import { refreshOfflineUserCache, resolveOfflineUserFromQr, upsertOfflineUserCacheUser } from '../../utils/offlineUsers';
 import { useTheme } from '../../config/theme';
 import {
   ATTENDANCE_SESSIONS_KEY,
@@ -25,6 +25,9 @@ import {
 
 export function useAttendance() {
   const { colors } = useTheme();
+  const NETWORK_PROBE_INTERVAL_MS = 5000;
+  const NETWORK_TIMEOUT_MS = 2500;
+  const NETWORK_TOAST_COOLDOWN_MS = 15000;
 
   // Camera
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -43,6 +46,8 @@ export function useAttendance() {
   const qrProcessingRef = useRef(false);
   const faceProcessingRef = useRef(false);
   const modalVisibleRef = useRef(false);
+  const previousOfflineStateRef = useRef(false);
+  const lastOfflineToastAtRef = useRef(0);
 
   // State
   const [faceCountdown, setFaceCountdown] = useState(3);
@@ -85,6 +90,29 @@ export function useAttendance() {
       if (snapSound) await snapSound.replayAsync();
     } catch { }
   };
+
+  const showOfflineToast = useCallback(() => {
+    const now = Date.now();
+    if (now - lastOfflineToastAtRef.current < NETWORK_TOAST_COOLDOWN_MS) return;
+    lastOfflineToastAtRef.current = now;
+    const message = 'Internet connection not detected. Scanner is now in offline mode.';
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.LONG);
+      return;
+    }
+    Alert.alert('No Internet Connection', message);
+  }, []);
+
+  const isLikelyConnectivityError = useCallback((error: any): boolean => {
+    const message = String(error?.message || '').toLowerCase();
+    return (
+      message.includes('network request failed') ||
+      message.includes('failed to fetch') ||
+      message.includes('timeout') ||
+      message.includes('abort') ||
+      message.includes('connection')
+    );
+  }, []);
 
   // Modal helpers
   const closeModal = useCallback(() => {
@@ -171,12 +199,6 @@ export function useAttendance() {
     try { await AsyncStorage.multiRemove(['userId', 'username']); } catch { }
   }, []);
 
-  const handleOfflineModeChange = useCallback(async (next: boolean) => {
-    setOfflineModeEnabled(next);
-    try { await AsyncStorage.setItem(OFFLINE_MODE_KEY, next ? 'true' : 'false'); }
-    catch { setOfflineModeEnabled(!next); showModal('error', 'Offline Mode', 'Failed to save offline mode setting.', ''); }
-  }, [showModal]);
-
   const refreshPendingSyncCount = useCallback(async () => {
     try {
       const queue = await getOfflineAttendanceQueue();
@@ -197,7 +219,7 @@ export function useAttendance() {
       catch { throw new Error(`Server returned invalid response. Status: ${response.status}`); }
       if (!response.ok) throw new Error(payload?.message || `QR validation failed. Status: ${response.status}`);
       if (!payload?.ok || !payload?.user?.log_id) throw new Error(payload?.message || 'QR not recognized');
-      return {
+      const user = {
         userId: String(payload.user.log_id),
         username: String(payload.user.username || ''),
         name: payload.user.name ?? null,
@@ -205,13 +227,26 @@ export function useAttendance() {
         role: payload.user.role ?? null,
         department: payload.user.department ?? null,
       };
+      setOfflineModeEnabled(false);
+      await upsertOfflineUserCacheUser({
+        userId: user.userId,
+        username: user.username,
+        name: user.name ?? null,
+        qrCode: qrData,
+        profile_picture: user.profile_picture ?? null,
+        role: user.role ?? null,
+        department: user.department ?? null,
+      });
+      return user;
     } catch (error) {
-      if (!offlineModeEnabled) throw error;
+      if (!offlineModeEnabled && !isLikelyConnectivityError(error)) throw error;
+      setOfflineModeEnabled(true);
+      showOfflineToast();
       const cachedUser = await resolveOfflineUserFromQr(qrData);
       if (!cachedUser) throw new Error('Offline mode needs a previously cached employee list for this QR code.');
       return { userId: cachedUser.userId, username: cachedUser.username, name: cachedUser.name ?? null, profile_picture: cachedUser.profile_picture ?? null, role: cachedUser.role ?? null, department: cachedUser.department ?? null };
     }
-  }, [offlineModeEnabled]);
+  }, [offlineModeEnabled, isLikelyConnectivityError, showOfflineToast]);
 
   // Face verify
   const verifyFace = async (photoUri1: string, photoUri2?: string) => {
@@ -268,7 +303,9 @@ export function useAttendance() {
     const res = await fetch(`${BACKEND_URL}/record_attendance.php`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' }, body: JSON.stringify({ user_id: userId, action }) });
     const responseText = await res.text();
     let data: any = {};
-    try { data = responseText ? JSON.parse(responseText) : {}; } catch { }
+    try { data = responseText ? JSON.parse(responseText) : {}; }
+    catch { throw new Error(`Attendance response invalid. Status: ${res.status}`); }
+    if (!res.ok || !data?.ok) throw new Error(data?.message || `Unable to record attendance (${res.status})`);
     return data;
   }, []);
 
@@ -312,23 +349,33 @@ export function useAttendance() {
         const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         const localTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
         let data: any = null;
-        if (offlineModeEnabled) {
+        let capturedOffline = offlineModeEnabled;
+        if (capturedOffline) {
           await enqueueOfflineAttendance({ userId: selectedUser.userId, username: selectedUser.username, name: selectedUser.name ?? null, action, date: localDate, time: localTime });
           await refreshPendingSyncCount();
         } else {
-          data = await recordAttendance(action);
+          try {
+            data = await recordAttendance(action);
+          } catch (error) {
+            if (!isLikelyConnectivityError(error)) throw error;
+            capturedOffline = true;
+            setOfflineModeEnabled(true);
+            showOfflineToast();
+            await enqueueOfflineAttendance({ userId: selectedUser.userId, username: selectedUser.username, name: selectedUser.name ?? null, action, date: localDate, time: localTime });
+            await refreshPendingSyncCount();
+          }
         }
         if (action === 'clock_in') {
           await storeClockInNotification({ date: data?.date || localDate, timein: data?.timein || localTime });
           await saveStoredSession({ userId: selectedUser.userId, username: selectedUser.username, name: selectedUser.name ?? null, clockInTime: data?.timein || localTime, clockInDate: data?.date || localDate });
-          if (!offlineModeEnabled && data?.emp_id != null) await AsyncStorage.setItem('emp_id', String(data.emp_id));
+          if (!capturedOffline && data?.emp_id != null) await AsyncStorage.setItem('emp_id', String(data.emp_id));
         } else {
           await clearStoredSession(selectedUser.userId);
         }
         await resetAttendanceFlow();
         showModal('success',
           action === 'clock_in' ? 'Clock In Success' : 'Clock Out Success',
-          offlineModeEnabled ? 'Captured and saved offline.' : 'Face verified and recorded.',
+          capturedOffline ? 'Captured and saved offline.' : 'Face verified and recorded.',
           '', 2000);
       } else if (result?.verified === false) {
         faceProcessingRef.current = false;
@@ -342,11 +389,12 @@ export function useAttendance() {
     } catch (e: any) {
       faceProcessingRef.current = false;
       livenessTriggeredRef.current = false;
-      showModal('error', offlineModeEnabled ? 'Offline Mode Error' : 'Connection Error', e?.message || 'Please try again.', offlineModeEnabled ? 'Connect once to refresh employee QR cache.' : 'Check your internet connection', 2000);
+      const showOfflineError = offlineModeEnabled || isLikelyConnectivityError(e);
+      showModal('error', showOfflineError ? 'Offline Mode Error' : 'Connection Error', e?.message || 'Please try again.', showOfflineError ? 'Connect once to refresh employee QR cache.' : 'Check your internet connection', 2000);
     } finally {
       setIsVerifying(false);
     }
-  }, [attendanceAction, clearStoredSession, hasPermission, qrVerified, recordAttendance, resetAttendanceFlow, saveStoredSession, selectedUser, showModal, offlineModeEnabled, refreshPendingSyncCount, runVerification, storeClockInNotification, touchlessEnabled]);
+  }, [attendanceAction, clearStoredSession, hasPermission, isLikelyConnectivityError, offlineModeEnabled, qrVerified, recordAttendance, refreshPendingSyncCount, resetAttendanceFlow, runVerification, saveStoredSession, selectedUser, showModal, showOfflineToast, storeClockInNotification, touchlessEnabled]);
 
   // Liveness callback
   const onLivenessDetected = Worklets.createRunOnJS(() => {
@@ -465,11 +513,10 @@ export function useAttendance() {
 
   useEffect(() => {
     let active = true;
-    AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, OFFLINE_MODE_KEY, 'settings_liveness_enabled']).then((entries) => {
+    AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, 'settings_liveness_enabled']).then((entries) => {
       if (active) {
         const mapped = Object.fromEntries(entries);
         setTouchlessEnabled(mapped[TOUCHLESS_SETTING_KEY] === 'true');
-        setOfflineModeEnabled(mapped[OFFLINE_MODE_KEY] === 'true');
         setLivenessEnabled(mapped['settings_liveness_enabled'] !== 'false'); // Default true
       }
     }).catch(() => { });
@@ -479,7 +526,45 @@ export function useAttendance() {
   useEffect(() => { if (!hasPermission) requestPermission(); }, [hasPermission, requestPermission]);
   useEffect(() => { const timer = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => { refreshPendingSyncCount(); }, [refreshPendingSyncCount]);
-  useEffect(() => { refreshOfflineUserCache().catch(() => { }); }, []);
+  useEffect(() => {
+    let active = true;
+
+    const probeNetwork = async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+      try {
+        const response = await fetch(`${BACKEND_URL}/settings.php`, {
+          headers: { Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' },
+          signal: controller.signal,
+        });
+        if (!active) return;
+        const online = response.ok;
+        setOfflineModeEnabled(!online);
+        if (online) {
+          refreshOfflineUserCache().catch(() => { });
+        }
+      } catch {
+        if (!active) return;
+        setOfflineModeEnabled(true);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    probeNetwork();
+    const timer = setInterval(probeNetwork, NETWORK_PROBE_INTERVAL_MS);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (offlineModeEnabled && !previousOfflineStateRef.current) {
+      showOfflineToast();
+    }
+    previousOfflineStateRef.current = offlineModeEnabled;
+  }, [offlineModeEnabled, showOfflineToast]);
 
   useEffect(() => {
     if (!qrVerified || !touchlessEnabled || isVerifying || touchlessTriggeredRef.current) return;
@@ -519,6 +604,6 @@ export function useAttendance() {
     qrVerified, selectedUser, clockInTime: displayClockInTime, faceCountdown,
     touchlessEnabled, offlineModeEnabled, livenessEnabled, pendingSyncCount,
     showResultModal, modalType, modalTitle, modalMessage, modalHint,
-    closeModal, handleOfflineModeChange, handleAttendance,
+    closeModal, handleAttendance,
   };
 }
