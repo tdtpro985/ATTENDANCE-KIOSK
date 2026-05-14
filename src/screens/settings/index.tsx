@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BACKEND_URL } from '../../config/backend';
-import { OFFLINE_MODE_KEY } from '../../utils/offlineAttendance';
 import { useTheme, Colors } from '../../config/theme';
 
 import { TouchlessModeFeature } from './features/TouchlessModeFeature';
@@ -12,6 +11,7 @@ import { ReportingIntervalFeature } from './features/ReportingIntervalFeature';
 import { AdminAccessFeature } from './features/AdminAccessFeature';
 import { OfflineRedundancyFeature } from './features/OfflineRedundancyFeature';
 import { ThemeSelectorFeature } from './features/ThemeSelectorFeature';
+import { LivenessCheckFeature } from './features/LivenessCheckFeature';
 import { SettingRow } from './components/SettingRow';
 
 const TOUCHLESS_SETTING_KEY = 'settings_touchless_enabled';
@@ -33,7 +33,8 @@ export default function Settings({ onBack }: Props) {
   const { colors } = useTheme();
   const [isLoading, setIsLoading] = useState(true);
   const [touchlessEnabled, setTouchlessEnabled] = useState(false);
-  const [offlineModeEnabled, setOfflineModeEnabled] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const [livenessEnabled, setLivenessEnabled] = useState(true);
   const [backendSettings, setBackendSettings] = useState<BackendSettings>({
     attendance_location: {
       latitude: 14.6130261,
@@ -45,7 +46,7 @@ export default function Settings({ onBack }: Props) {
   const loadSettings = useCallback(async () => {
     try {
       const [settingsEntries, response] = await Promise.all([
-        AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, OFFLINE_MODE_KEY]),
+        AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, 'settings_liveness_enabled']),
         fetch(`${BACKEND_URL}/settings.php`, {
           headers: {
             Accept: 'application/json',
@@ -56,17 +57,21 @@ export default function Settings({ onBack }: Props) {
 
       const localSettings = Object.fromEntries(settingsEntries);
       setTouchlessEnabled(localSettings[TOUCHLESS_SETTING_KEY] === 'true');
-      setOfflineModeEnabled(localSettings[OFFLINE_MODE_KEY] === 'true');
+      setLivenessEnabled(localSettings['settings_liveness_enabled'] !== 'false'); // Default to true
 
       const payload = await response.json();
       if (payload?.ok) {
+        setIsOnline(true);
         setBackendSettings((prev) => ({
           ...prev,
           ...payload.settings,
         }));
+      } else {
+        setIsOnline(false);
       }
     } catch (error: any) {
       console.log('Settings load error', error);
+      setIsOnline(false);
     } finally {
       setIsLoading(false);
     }
@@ -85,12 +90,12 @@ export default function Settings({ onBack }: Props) {
     }
   }, []);
 
-  const handleOfflineModeChange = useCallback(async (value: boolean) => {
-    setOfflineModeEnabled(value);
+  const handleLivenessChange = useCallback(async (value: boolean) => {
+    setLivenessEnabled(value);
     try {
-      await AsyncStorage.setItem(OFFLINE_MODE_KEY, value ? 'true' : 'false');
+      await AsyncStorage.setItem('settings_liveness_enabled', value ? 'true' : 'false');
     } catch {
-      setOfflineModeEnabled(!value);
+      setLivenessEnabled(!value);
     }
   }, []);
 
@@ -148,24 +153,26 @@ export default function Settings({ onBack }: Props) {
         <Pressable onPress={onBack} style={styles.backButton}>
           <Text style={[styles.backArrow, { color: colors.text }]}>{'<'}</Text>
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Kiosk Configuration</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
         <View style={styles.sectionContainer}>
+
           <TouchlessModeFeature enabled={touchlessEnabled} onToggle={handleTouchlessChange} />
-          <SyncLocationFeature 
-            attendance_location={backendSettings.attendance_location} 
-            saveBackendSettings={saveBackendSettings} 
+          <LivenessCheckFeature enabled={livenessEnabled} onToggle={handleLivenessChange} />
+          <SyncLocationFeature
+            attendance_location={backendSettings.attendance_location}
+            saveBackendSettings={saveBackendSettings}
           />
-          <ReportingIntervalFeature 
-            currentInterval={backendSettings.attendance_interval_minutes ?? 5} 
-            saveBackendSettings={saveBackendSettings} 
+          <ReportingIntervalFeature
+            currentInterval={backendSettings.attendance_interval_minutes ?? 5}
+            saveBackendSettings={saveBackendSettings}
           />
           <AdminAccessFeature saveBackendSettings={saveBackendSettings} />
-          <OfflineRedundancyFeature enabled={offlineModeEnabled} onToggle={handleOfflineModeChange} />
+          <OfflineRedundancyFeature isOnline={isOnline} />
+
           <ThemeSelectorFeature />
-          
           <SettingRow title="System Logout" danger onPress={handleLogout} />
         </View>
       </ScrollView>
