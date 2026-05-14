@@ -26,6 +26,7 @@ type Props = {
   isClockingOut: boolean;
   touchlessEnabled: boolean;
   offlineModeEnabled: boolean;
+  livenessEnabled: boolean;
   pendingSyncCount: number;
   faceCountdown: number;
   clockInTime: string;
@@ -33,7 +34,6 @@ type Props = {
   accentColor: string;
   onBack: () => void;
   onOpenOffline: () => void;
-  onOfflineModeChange: (next: boolean) => void;
   onAttendance: () => void;
 };
 
@@ -49,6 +49,7 @@ export default function FaceScanView({
   isClockingOut,
   touchlessEnabled,
   offlineModeEnabled,
+  livenessEnabled,
   pendingSyncCount,
   faceCountdown,
   clockInTime,
@@ -56,7 +57,6 @@ export default function FaceScanView({
   accentColor,
   onBack,
   onOpenOffline,
-  onOfflineModeChange,
   onAttendance,
 }: Props) {
   const { width, height } = useWindowDimensions();
@@ -73,7 +73,7 @@ export default function FaceScanView({
           device={device}
           isActive={true}
           photo={true}
-          frameProcessor={frameProcessor}
+          frameProcessor={livenessEnabled ? frameProcessor : undefined}
           outputOrientation="device"
           resizeMode="cover"
         />
@@ -98,13 +98,12 @@ export default function FaceScanView({
                 <Text style={styles.topDate}>{formattedDate}</Text>
               </View>
               <View style={styles.headerRight}>
-                <TouchableOpacity
-                  onPress={() => onOfflineModeChange(!offlineModeEnabled)}
+                <View
                   style={[styles.miniOfflineBadge, offlineModeEnabled && styles.miniOfflineBadgeActive]}
                 >
                   <MaterialCommunityIcons name={offlineModeEnabled ? 'cloud-off' : 'cloud-check'} size={18} color="#fff" />
                   <Text style={styles.miniOfflineText}>{offlineModeEnabled ? 'OFFLINE' : 'ONLINE'}</Text>
-                </TouchableOpacity>
+                </View>
               </View>
             </View>
 
@@ -159,14 +158,14 @@ export default function FaceScanView({
                 )}
                 {isVerifying ? (
                   <ActivityIndicator size={80} color="#F27121" style={styles.faceIconBackground} />
-                ) : faceCountdown > 0 ? (
+                ) : (faceCountdown > 0 && touchlessEnabled) ? (
                   <Text style={styles.countdownText}>{faceCountdown}</Text>
                 ) : (
                   <MaterialCommunityIcons name="face-recognition" size={120} color="rgba(255,255,255,0.2)" style={styles.faceIconBackground} />
                 )}
               </View>
               <Text style={styles.scanInstructionText}>
-                {isVerifying ? 'VERIFYING IDENTITY...' : faceCountdown > 0 ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
+                {isVerifying ? 'VERIFYING IDENTITY...' : (faceCountdown > 0 && touchlessEnabled) ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
               </Text>
               <Text style={styles.faceHintText}>
                 {isVerifying ? 'Please wait...' : faceCountdown > 0 ? 'Position your face' : 'Face the camera • Keep eyes open • SMILE :)'}
@@ -279,8 +278,9 @@ export default function FaceScanView({
           device={device}
           isActive={true}
           photo={true}
-          frameProcessor={frameProcessor}
+          frameProcessor={livenessEnabled ? frameProcessor : undefined}
           outputOrientation="device"
+          orientationSource="device"
           resizeMode="cover"
         />
         <Animated.View style={[styles.snapFlash, { opacity: flashAnim }]} pointerEvents="none" />
@@ -292,13 +292,12 @@ export default function FaceScanView({
               <Text style={styles.topTimeRight}>{formattedTime}</Text>
               <Text style={styles.topDateRight}>{formattedDate}</Text>
             </View>
-            <TouchableOpacity
-              onPress={() => onOfflineModeChange(!offlineModeEnabled)}
+            <View
               style={[styles.miniOfflineBadge, offlineModeEnabled && styles.miniOfflineBadgeActive]}
             >
               <MaterialCommunityIcons name={offlineModeEnabled ? 'cloud-off' : 'cloud-check'} size={18} color="#fff" />
               <Text style={styles.miniOfflineText}>{offlineModeEnabled ? 'OFFLINE' : 'ONLINE'}</Text>
-            </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.faceScannerAreaRight}>
@@ -324,14 +323,14 @@ export default function FaceScanView({
               )}
               {isVerifying ? (
                 <ActivityIndicator size={80} color="#F27121" style={styles.faceIconBackground} />
-              ) : faceCountdown > 0 ? (
+              ) : (faceCountdown > 0 && touchlessEnabled) ? (
                 <Text style={styles.countdownText}>{faceCountdown}</Text>
               ) : (
                 <MaterialCommunityIcons name="face-recognition" size={120} color="rgba(255,255,255,0.2)" style={styles.faceIconBackground} />
               )}
             </View>
             <Text style={styles.scanInstructionTextRight}>
-              {isVerifying ? 'VERIFYING IDENTITY...' : faceCountdown > 0 ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
+              {isVerifying ? 'VERIFYING IDENTITY...' : (faceCountdown > 0 && touchlessEnabled) ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
             </Text>
             <Text style={styles.faceHintTextRight}>
               {isVerifying ? 'Please wait while we verify your identity' : faceCountdown > 0 ? 'Position your face inside the frame' : 'Face the camera directly \u2022 Keep eyes open \u2022 Stay still \u2022 SMILE :)'}

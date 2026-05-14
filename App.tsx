@@ -8,6 +8,7 @@ import EmployeeProfileData from './src/screens/EmployeeProfileData';
 import Settings from './src/screens/settings';
 import OfflineSync from './src/screens/OfflineSync';
 import { refreshOfflineUserCache } from './src/utils/offlineUsers';
+import * as Location from 'expo-location';
 import { ThemeContext, Theme, getStoredTheme, saveTheme, ThemeType, Colors } from './src/config/theme';
 
 const { width: WINDOW_WIDTH } = Dimensions.get('window');
@@ -26,8 +27,8 @@ export default function App() {
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => {});
     refreshOfflineUserCache().catch(() => undefined);
-    
     getStoredTheme().then(setThemeState);
+    Location.requestForegroundPermissionsAsync().catch(() => {});
   }, []);
 
   const ScreenComponent = useMemo(() => {
