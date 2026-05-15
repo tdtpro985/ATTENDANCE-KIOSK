@@ -2,6 +2,7 @@
 // Supabase "database connection" helper file.
 ini_set('display_errors', '0');
 ini_set('display_startup_errors', '0');
+ini_set('memory_limit', '512M');
 error_reporting(E_ALL);
 // This file only contains the configuration and helper functions to talk to Supabase.
 
@@ -160,7 +161,7 @@ function supabase_request(string $method, string $path, ?array $body = null, arr
 /**
  * Compresses a base64 image string to a smaller thumbnail
  */
-function compress_base64_image(string $base64Str, int $maxWidth = 150, int $quality = 60): string
+function compress_base64_image(string $base64Str, int $maxWidth = 100, int $quality = 50): string
 {
     try {
         if (strpos($base64Str, 'data:image') === 0) {

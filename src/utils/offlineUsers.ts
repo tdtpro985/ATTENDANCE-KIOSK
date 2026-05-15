@@ -119,9 +119,20 @@ export function mapEmployeesToOfflineUsers(data: EmployeePayloadRow[]): CachedOf
 }
 
 export async function updateOfflineUserCacheFromEmployees(data: EmployeePayloadRow[]): Promise<CachedOfflineUser[]> {
-  const users = mapEmployeesToOfflineUsers(data);
-  await saveOfflineUserCache(users);
-  return users;
+  const incomingUsers = mapEmployeesToOfflineUsers(data);
+  const existingUsers = await getOfflineUserCache();
+  
+  const userMap = new Map<string, CachedOfflineUser>();
+  
+  // Load existing
+  existingUsers.forEach(u => userMap.set(u.userId, u));
+  
+  // Merge incoming (overwrite with fresh data)
+  incomingUsers.forEach(u => userMap.set(u.userId, u));
+  
+  const merged = Array.from(userMap.values());
+  await saveOfflineUserCache(merged);
+  return merged;
 }
 
 export async function refreshOfflineUserCache(): Promise<CachedOfflineUser[]> {

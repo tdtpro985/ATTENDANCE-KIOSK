@@ -1,0 +1,53 @@
+<?php
+/**
+ * employee_details.php
+ * Fetches high-quality profile picture for a single employee on demand.
+ */
+
+ini_set('memory_limit', '512M');
+error_reporting(E_ALL);
+
+require_once __DIR__ . '/connect.php';
+
+header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, apikey');
+header('Access-Control-Allow-Methods: GET, OPTIONS');
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+$userId = isset($_GET['user_id']) ? $_GET['user_id'] : null;
+
+if (!$userId) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'message' => 'Missing user_id parameter']);
+    exit;
+}
+
+// Fetch HQ image (80% quality, 600px max width)
+$select = 'log_id,username,profile_picture';
+$path = "rest/v1/accounts?select={$select}&log_id=eq.{$userId}";
+
+[$status, $rows, $err] = supabase_request('GET', $path);
+
+$data = null;
+if (is_array($rows) && count($rows) > 0) {
+    $data = $rows[0];
+    if (isset($data['profile_picture']) && strlen($data['profile_picture']) > 100) {
+        // HQ version: 600px width, 80% quality
+        $data['profile_picture_hq'] = compress_base64_image($data['profile_picture'], 600, 80);
+        // Remove the original to save bandwidth
+        unset($data['profile_picture']);
+    }
+}
+
+echo json_encode([
+    'ok' => $status >= 200 && $status < 300 && $data !== null,
+    'status' => $status,
+    'error' => $err ?: ($data === null ? 'User not found' : null),
+    'user' => $data,
+]);

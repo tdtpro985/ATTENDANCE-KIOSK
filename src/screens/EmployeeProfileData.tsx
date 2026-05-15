@@ -6,7 +6,7 @@ import { BACKEND_URL } from '../config/backend';
 import { updateOfflineUserCacheFromEmployees, getOfflineUserCache, clearOfflineUserCache } from '../utils/offlineUsers';
 import { useTheme, Colors } from '../config/theme';
 
-const DIRECTORY_POLL_INTERVAL_MS = 20000;
+const DIRECTORY_POLL_INTERVAL_MS = 30000; // Increased to 30s to reduce background load
 const LAST_SYNC_KEY = 'employee_directory_last_sync';
 
 type SortOption = 'name_asc' | 'name_desc';
@@ -45,22 +45,34 @@ export default function EmployeeProfileData({ onBack }: Props) {
   };
 
   const [employees, setEmployees] = useState<EmployeeRow[]>(globalEmployeesCache);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const ITEMS_PER_PAGE = 50;
   
-  const setUniqueEmployees = useCallback((data: EmployeeRow[]) => {
+  const setUniqueEmployees = useCallback((data: EmployeeRow[], append: boolean = false) => {
     const seen = new Set<number>();
-    const unique = data.filter(emp => {
+    const sourceData = append ? [...employeesRef.current, ...data] : data;
+    const unique = sourceData.filter(emp => {
       if (!emp.emp_id || seen.has(emp.emp_id)) return false;
       seen.add(emp.emp_id);
       return true;
     });
     setEmployees(unique);
     globalEmployeesCache = unique;
+    
+    // If we got fewer items than requested, there's no more data
+    if (data.length < ITEMS_PER_PAGE) {
+      setHasMore(false);
+    } else {
+      setHasMore(true);
+    }
   }, []);
 
   const employeesRef = useRef<EmployeeRow[]>(globalEmployeesCache);
   const [searchText, setSearchText] = useState('');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>('name_asc');
   const [selectedDept, setSelectedDept] = useState<string>('All Departments');
   const [selectedRole, setSelectedRole] = useState<string>('All Roles');
@@ -101,18 +113,22 @@ export default function EmployeeProfileData({ onBack }: Props) {
     employeesRef.current = employees;
   }, [employees]);
 
-  const fetchEmployees = useCallback(async (options?: { showLoading?: boolean; manual?: boolean }) => {
+  const fetchEmployees = useCallback(async (options?: { showLoading?: boolean; manual?: boolean; page?: number }) => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     
-    if (options?.showLoading && employeesRef.current.length === 0) {
+    const page = options?.page ?? 0;
+    const isInitial = page === 0;
+
+    if (options?.showLoading && isInitial && employeesRef.current.length === 0) {
       setIsLoading(true);
     }
     
-    if (options?.manual) setIsRefreshing(true);
+    if (!isInitial) setIsLoadingMore(true);
+    if (options?.manual && isInitial) setIsRefreshing(true);
 
     try {
-      const response = await fetch(`${BACKEND_URL}/employees.php`);
+      const response = await fetch(`${BACKEND_URL}/employees.php?page=${page}&limit=${ITEMS_PER_PAGE}`);
       const payload = await response.json();
 
       if (!payload?.ok || !Array.isArray(payload?.data)) {
@@ -120,12 +136,23 @@ export default function EmployeeProfileData({ onBack }: Props) {
       }
 
       const rows = payload.data as EmployeeRow[];
-      await updateOfflineUserCacheFromEmployees(rows);
+      
+      // Update local cache only on first few pages to save storage, 
+      // or update it fully but with compressed thumbnails.
+      if (isInitial) {
+        await updateOfflineUserCacheFromEmployees(rows);
+      }
       
       const now = Date.now();
       if (!mountedRef.current) return;
-      setUniqueEmployees(rows);
-      await updateLastSync(now);
+      
+      setUniqueEmployees(rows, !isInitial);
+      if (isInitial) {
+        await updateLastSync(now);
+        setCurrentPage(0);
+      } else {
+        setCurrentPage(page);
+      }
     } catch (error) {
       console.log('fetchEmployees error:', error);
     } finally {
@@ -133,6 +160,7 @@ export default function EmployeeProfileData({ onBack }: Props) {
       if (mountedRef.current) {
         setIsLoading(false);
         setIsRefreshing(false);
+        setIsLoadingMore(false);
       }
     }
   }, [setUniqueEmployees, updateLastSync]);
@@ -193,27 +221,26 @@ export default function EmployeeProfileData({ onBack }: Props) {
           }));
           setUniqueEmployees(mapped);
           setIsBootstrapping(false);
-          // Sync silently in background
-          fetchEmployees({ showLoading: false });
+          // Sync silently in background (first page)
+          fetchEmployees({ showLoading: false, page: 0 });
         } else if (globalEmployeesCache.length > 0) {
-          // Already have memory cache, just end bootstrap and background sync
           setIsBootstrapping(false);
-          fetchEmployees({ showLoading: false });
+          fetchEmployees({ showLoading: false, page: 0 });
         } else {
-          // No cache anywhere, must show loader
-          await fetchEmployees({ showLoading: true });
+          await fetchEmployees({ showLoading: true, page: 0 });
           setIsBootstrapping(false);
         }
       } catch (e) {
         console.error('Bootstrap error:', e);
         if (employeesRef.current.length === 0) {
-          await fetchEmployees({ showLoading: true });
+          await fetchEmployees({ showLoading: true, page: 0 });
         }
         setIsBootstrapping(false);
       }
     };
     bootstrap();
-    const pollTimer = setInterval(() => fetchEmployees({ showLoading: false }), DIRECTORY_POLL_INTERVAL_MS);
+    // Poll only first page periodically
+    const pollTimer = setInterval(() => fetchEmployees({ showLoading: false, page: 0 }), DIRECTORY_POLL_INTERVAL_MS);
     return () => {
       mountedRef.current = false;
       clearInterval(pollTimer);
@@ -221,8 +248,14 @@ export default function EmployeeProfileData({ onBack }: Props) {
   }, [fetchEmployees, setUniqueEmployees]);
 
   const handleManualRefresh = useCallback(() => {
-    fetchEmployees({ manual: true });
+    fetchEmployees({ manual: true, page: 0 });
   }, [fetchEmployees]);
+
+  const handleLoadMore = useCallback(() => {
+    if (!isLoadingMore && hasMore) {
+      fetchEmployees({ page: currentPage + 1 });
+    }
+  }, [fetchEmployees, currentPage, isLoadingMore, hasMore]);
 
   const sortedAndFilteredEmployees = useMemo(() => {
     let result = employees.filter(emp => {
@@ -466,6 +499,21 @@ export default function EmployeeProfileData({ onBack }: Props) {
               </View>
             ))}
           </View>
+          
+          {hasMore && !searchText && selectedDept === 'All Departments' && selectedRole === 'All Roles' && (
+            <Pressable 
+              onPress={handleLoadMore} 
+              disabled={isLoadingMore}
+              style={[styles.loadMoreButton, { borderColor: colors.border, backgroundColor: colors.surface }]}
+            >
+              {isLoadingMore ? (
+                <ActivityIndicator color={Colors.powerOrange} />
+              ) : (
+                <Text style={[styles.loadMoreText, { color: Colors.powerOrange }]}>LOAD MORE EMPLOYEES</Text>
+              )}
+            </Pressable>
+          )}
+
           {sortedAndFilteredEmployees.length === 0 && !isBootstrapping && !isLoading && (
             <View style={styles.emptyContainer}>
               <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No matching employees found.</Text>
@@ -707,5 +755,18 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  loadMoreButton: {
+    width: '100%',
+    height: 60,
+    borderRadius: 15,
+    borderWidth: 1.5,
+    marginTop: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadMoreText: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
 });
-
