@@ -25,6 +25,7 @@ type Props = {
   formattedTime: string;
   formattedDate: string;
   isVerifying: boolean;
+  isCapturingHardware: boolean;
   isClockingOut: boolean;
   touchlessEnabled: boolean;
   offlineModeEnabled: boolean;
@@ -34,6 +35,7 @@ type Props = {
   clockInTime: string;
   selectedUser: ResolvedUser | null;
   accentColor: string;
+  livenessMessage: string;
   onBack: () => void;
   onOpenOffline: () => void;
   onAttendance: () => void;
@@ -48,6 +50,7 @@ export default function FaceScanView({
   formattedTime,
   formattedDate,
   isVerifying,
+  isCapturingHardware,
   isClockingOut,
   touchlessEnabled,
   offlineModeEnabled,
@@ -57,6 +60,7 @@ export default function FaceScanView({
   clockInTime,
   selectedUser,
   accentColor,
+  livenessMessage,
   onBack,
   onOpenOffline,
   onAttendance,
@@ -85,8 +89,6 @@ export default function FaceScanView({
   const requiresAndroidRotationFix = Platform.OS === 'android' && livenessEnabled;
   
   // Calculate scale to prevent squishing when applying CSS rotation to a non-square container
-  // For portrait, the camera takes full screen (width x height)
-  // For landscape, the camera takes the right panel (width * 0.6 x height)
   const cameraContainerWidth = isLandscape ? width * 0.6 : width;
   const cameraContainerHeight = height;
   const scaleRatio = Math.max(
@@ -94,7 +96,7 @@ export default function FaceScanView({
     cameraContainerHeight / cameraContainerWidth
   );
   
-  let cameraTransform = [];
+  let cameraTransform: any[] = [];
   if (requiresAndroidRotationFix) {
     if (orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT) {
       cameraTransform = [{ rotate: '90deg' }, { scale: scaleRatio }];
@@ -115,7 +117,7 @@ export default function FaceScanView({
           device={device}
           isActive={true}
           photo={true}
-          frameProcessor={livenessEnabled ? frameProcessor : undefined}
+          frameProcessor={frameProcessor}
           androidPreviewViewType="texture-view"
           resizeMode="cover"
         />
@@ -123,7 +125,6 @@ export default function FaceScanView({
         <View style={styles.cameraTintLight} pointerEvents="none" />
 
         <SafeAreaView style={styles.overlaySafeArea} edges={['top', 'left', 'right', 'bottom']}>
-          {/* Header with back + profile info */}
           <View>
             <View style={styles.newHeader}>
               <View style={styles.headerLeft}>
@@ -149,7 +150,6 @@ export default function FaceScanView({
               </View>
             </View>
 
-            {/* Compact profile bar */}
             <View style={[styles.portraitProfileBar, { backgroundColor: accentColor }]}>
               {selectedUser?.profile_picture ? (
                 <Image source={{ uri: selectedUser.profile_picture }} style={styles.portraitProfileImage} />
@@ -175,7 +175,6 @@ export default function FaceScanView({
             </View>
           </View>
 
-          {/* Face scan area */}
           <View style={styles.scannerOverlayContainer}>
             <View style={styles.faceScannerArea}>
               <View style={styles.faceFrame}>
@@ -183,7 +182,7 @@ export default function FaceScanView({
                 <View style={[styles.corner, styles.cornerTopRight]} />
                 <View style={[styles.corner, styles.cornerBottomLeft]} />
                 <View style={[styles.corner, styles.cornerBottomRight]} />
-                {!isVerifying && (
+                {!isVerifying && !isCapturingHardware && (
                   <Animated.View
                     style={[
                       styles.scanLine,
@@ -198,7 +197,7 @@ export default function FaceScanView({
                     ]}
                   />
                 )}
-                {isVerifying ? (
+                {isCapturingHardware || isVerifying ? (
                   <ActivityIndicator size={80} color="#F27121" style={styles.faceIconBackground} />
                 ) : (faceCountdown > 0 && touchlessEnabled) ? (
                   <Text style={styles.countdownText}>{faceCountdown}</Text>
@@ -207,15 +206,14 @@ export default function FaceScanView({
                 )}
               </View>
               <Text style={styles.scanInstructionText}>
-                {isVerifying ? 'VERIFYING IDENTITY...' : (faceCountdown > 0 && touchlessEnabled) ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
+                {isCapturingHardware ? 'CAPTURING PHOTO...' : isVerifying ? 'VERIFYING IDENTITY...' : (faceCountdown > 0 && touchlessEnabled) ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
               </Text>
               <Text style={styles.faceHintText}>
-                {isVerifying ? 'Please wait...' : faceCountdown > 0 ? 'Position your face' : 'Face the camera • Keep eyes open • SMILE :)'}
+                {isCapturingHardware ? 'Hold still for a moment' : isVerifying ? 'Please wait...' : faceCountdown > 0 ? 'Position your face' : livenessMessage}
               </Text>
             </View>
           </View>
 
-          {/* Footer action button */}
           <View style={styles.portraitFooter}>
             {isVerifying ? (
               <View style={styles.verifyingPill}>
@@ -230,7 +228,7 @@ export default function FaceScanView({
                   <TouchableOpacity
                     style={[styles.mainActionButton, { backgroundColor: isClockingOut ? '#C0392B' : accentColor }]}
                     onPress={onAttendance}
-                    disabled={isVerifying}
+                    disabled={isVerifying || isCapturingHardware}
                   >
                     <Text style={styles.mainActionButtonText}>
                       {isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN'}
@@ -248,7 +246,6 @@ export default function FaceScanView({
   // Landscape mode (tablets) — 40/60 split screen
   return (
     <View style={styles.splitScreenContainer}>
-      {/* LEFT PANEL - Profile (40%) */}
       <View style={[styles.leftPanel, { backgroundColor: accentColor }]}>
         <SafeAreaView style={styles.panelSafeArea} edges={['top', 'left', 'bottom']}>
           <View style={styles.leftPanelHeader}>
@@ -270,7 +267,7 @@ export default function FaceScanView({
                   <MaterialCommunityIcons name="account" size={100} color={accentColor} />
                 </View>
               )}
-              {!isVerifying && (
+              {!isVerifying && !isCapturingHardware && (
                 <View style={styles.verifiedBadge}>
                   <MaterialCommunityIcons name="check-circle" size={32} color="#4ade80" />
                 </View>
@@ -300,7 +297,7 @@ export default function FaceScanView({
                 <TouchableOpacity
                   style={[styles.mainActionButtonLeft, { backgroundColor: isClockingOut ? '#C0392B' : '#fff' }]}
                   onPress={onAttendance}
-                  disabled={isVerifying}
+                  disabled={isVerifying || isCapturingHardware}
                 >
                   <Text style={[styles.mainActionButtonTextLeft, { color: isClockingOut ? '#fff' : accentColor }]}>
                     {isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN'}
@@ -312,7 +309,6 @@ export default function FaceScanView({
         </SafeAreaView>
       </View>
 
-      {/* RIGHT PANEL - Camera (60%) */}
       <View style={styles.rightPanel}>
         <Camera
           ref={cameraRef}
@@ -320,7 +316,7 @@ export default function FaceScanView({
           device={device}
           isActive={true}
           photo={true}
-          frameProcessor={livenessEnabled ? frameProcessor : undefined}
+          frameProcessor={frameProcessor}
           androidPreviewViewType="texture-view"
           resizeMode="cover"
         />
@@ -347,7 +343,7 @@ export default function FaceScanView({
               <View style={[styles.corner, styles.cornerTopRight]} />
               <View style={[styles.corner, styles.cornerBottomLeft]} />
               <View style={[styles.corner, styles.cornerBottomRight]} />
-              {!isVerifying && (
+              {!isVerifying && !isCapturingHardware && (
                 <Animated.View
                   style={[
                     styles.scanLine,
@@ -362,7 +358,7 @@ export default function FaceScanView({
                   ]}
                 />
               )}
-              {isVerifying ? (
+              {isCapturingHardware || isVerifying ? (
                 <ActivityIndicator size={80} color="#F27121" style={styles.faceIconBackground} />
               ) : (faceCountdown > 0 && touchlessEnabled) ? (
                 <Text style={styles.countdownText}>{faceCountdown}</Text>
@@ -371,10 +367,10 @@ export default function FaceScanView({
               )}
             </View>
             <Text style={styles.scanInstructionTextRight}>
-              {isVerifying ? 'VERIFYING IDENTITY...' : (faceCountdown > 0 && touchlessEnabled) ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
+              {isCapturingHardware ? 'CAPTURING PHOTO...' : isVerifying ? 'VERIFYING IDENTITY...' : (faceCountdown > 0 && touchlessEnabled) ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
             </Text>
             <Text style={styles.faceHintTextRight}>
-              {isVerifying ? 'Please wait while we verify your identity' : faceCountdown > 0 ? 'Position your face inside the frame' : 'Face the camera directly \u2022 Keep eyes open \u2022 Stay still \u2022 SMILE :)'}
+              {isCapturingHardware ? 'Hold still for a moment' : isVerifying ? 'Please wait while we verify your identity' : faceCountdown > 0 ? 'Position your face inside the frame' : livenessMessage}
             </Text>
           </View>
         </SafeAreaView>
