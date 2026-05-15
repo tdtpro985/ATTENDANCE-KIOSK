@@ -54,7 +54,7 @@ export function useAttendance() {
   const livenessTriggeredRef = useRef(false);
   const countdownRef = useRef(0);
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const modalContextRef = useRef<'qr_success' | 'other'>('other');
+  const modalContextRef = useRef<'qr_success' | 'face_error' | 'other'>('other');
   const lastScanRef = useRef<{ data: string | null; ts: number }>({ data: null, ts: 0 });
   const touchlessTriggeredRef = useRef(false);
   const qrProcessingRef = useRef(false);
@@ -62,9 +62,25 @@ export function useAttendance() {
   const modalVisibleRef = useRef(false);
   const previousOfflineStateRef = useRef(false);
   const lastOfflineToastAtRef = useRef(0);
+  const identityStatusRef = useRef<'idle' | 'pending' | 'passed' | 'failed'>('idle');
+  const livenessStatusRef = useRef<'idle' | 'pending' | 'passed'>('idle');
+
+  // Shared Values (moved up to avoid use-before-declaration)
+  const workletPhase = useSharedValue(0);
+  const blinkState = useSharedValue(0);
+  const isProcessingFace = useSharedValue(false);
+  const isCapturingHardwareRef = useSharedValue(false);
+  const sharedTouchlessEnabled = useSharedValue(false);
+  const sharedLivenessEnabled = useSharedValue(true);
+  const sharedCountdownValue = useSharedValue(0);
 
   // State
   const [faceCountdown, setFaceCountdown] = useState(0);
+
+  // Sync state with shared values
+  useEffect(() => {
+    sharedCountdownValue.value = faceCountdown;
+  }, [faceCountdown, sharedCountdownValue]);
   const [countdownActive, setCountdownActive] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [clockInTime, setClockInTime] = useState('');
@@ -148,9 +164,16 @@ export function useAttendance() {
           setCountdownActive(false);
         }
         modalContextRef.current = 'other';
+      } else if (modalContextRef.current === 'face_error') {
+        workletPhase.value = 0;
+        blinkState.value = 0;
+        setLivenessMessage('Face the camera directly');
+        identityStatusRef.current = 'idle';
+        livenessStatusRef.current = 'idle';
+        modalContextRef.current = 'other';
       }
     });
-  }, [scaleAnim]);
+  }, [scaleAnim, touchlessEnabled, workletPhase, blinkState]);
 
   const showModal = useCallback(
     (type: ModalType, title: string, message: string, hint: string, autoCloseMs?: number) => {
@@ -211,6 +234,14 @@ export function useAttendance() {
     touchlessTriggeredRef.current = false;
     qrProcessingRef.current = false;
     faceProcessingRef.current = false;
+    identityStatusRef.current = 'idle';
+    livenessStatusRef.current = 'idle';
+
+    // Reset liveness state machine
+    blinkState.value = 0;
+    setLivenessMessage('Face the camera directly');
+    workletPhase.value = 0;
+
     try { await AsyncStorage.multiRemove(['userId', 'username']); } catch { }
   }, []);
 
@@ -297,7 +328,7 @@ export function useAttendance() {
     if (!userId) throw new Error('User not logged in (missing userId). Please log in again.');
     console.log('[Verify] Sending face to backend', sanitizeForLog({
       userId,
-      hasLiveness: !!photoUri2,
+      isSendingSecondPhoto: !!photoUri2,
       face_reference: selectedUser?.face
     }));
     const form = new FormData();
@@ -314,7 +345,11 @@ export function useAttendance() {
     let json: any = {};
     try { json = responseText ? JSON.parse(responseText) : {}; } catch { throw new Error(`Server returned invalid response. Status: ${response.status}`); }
     if (response.status === 401 && json.message) {
-      console.log('[Verify] Face mismatch or Liveness failure', sanitizeForLog(json));
+      if (json.message.includes('Liveness')) {
+        console.log('[Verify] Liveness Failure', sanitizeForLog(json));
+      } else {
+        console.log('[Verify] Identity Mismatch', sanitizeForLog(json));
+      }
       if (json.captured_faces_count != null || json.reference_faces_count != null) {
         console.log(`[Verify] Debug Info: Faces detected in Live Capture: ${json.captured_faces_count ?? 0}, Faces detected in Database Reference: ${json.reference_faces_count ?? 0}`);
       }
@@ -334,25 +369,12 @@ export function useAttendance() {
     const photo1 = await cameraRef.current.takePhoto({ 
       flash: 'off',
       enableAutoRedEyeReduction: true,
-      qualityPrioritization: 'balanced',
-      enableAutoStabilization: true,
     });
-    if (!photo1?.path) throw new Error('No image captured (Shot 1)');
-
-    let photo2;
-    if (livenessEnabled) {
-      await new Promise(resolve => setTimeout(resolve, 700)); // Increased from 300ms to 700ms for stricter liveness
-      photo2 = await cameraRef.current.takePhoto({ 
-        flash: 'off',
-        qualityPrioritization: 'balanced',
-        enableAutoStabilization: true,
-      });
-      if (!photo2?.path) throw new Error('No image captured (Shot 2)');
-    }
+    if (!photo1?.path) throw new Error('No image captured');
 
     if (offlineModeEnabled) return { ok: true, verified: true, offlineCaptured: true, message: 'Face photos captured offline.', photoUri: `file://${photo1.path}` };
-    return verifyFace(`file://${photo1.path}`, photo2 ? `file://${photo2.path}` : undefined);
-  }, [offlineModeEnabled, livenessEnabled]);
+    return verifyFace(`file://${photo1.path}`);
+  }, [offlineModeEnabled]);
 
   const recordAttendance = useCallback(async (action: 'clock_in' | 'clock_out') => {
     const userId = await AsyncStorage.getItem('userId');
@@ -381,69 +403,47 @@ export function useAttendance() {
     } catch { }
   }, []);
 
-  // Main attendance handler
-  const handleAttendance = useCallback(async () => {
-    if (faceProcessingRef.current || isVerifying) return;
-    if (!qrVerified || !selectedUser) {
-      showModal('warning', 'Scan QR Code First', 'Please scan your personal QR code before continuing.', 'The user must scan a QR code.');
-      return;
-    }
-    if (!hasPermission) { showModal('warning', 'Camera Required', 'Please allow camera access to verify your identity.', ''); return; }
-    faceProcessingRef.current = true;
-    console.log('[Attendance] Starting verification', { action: attendanceAction, userId: selectedUser.userId });
+  const executeAttendanceRecording = useCallback(async () => {
     setIsVerifying(true);
+    faceProcessingRef.current = true;
     try {
-      let result;
-      if (attendanceAction === 'clock_out') {
-        result = { ok: true, verified: true, message: 'Clock out authorized.' };
-      } else {
-        result = await runVerification();
-        if (result?.liveness_score != null) console.log(`[Verify] Liveness Accuracy: ${(result.liveness_score * 100).toFixed(2)}%`);
-        if (result?.match_score != null) console.log(`[Verify] Identity Match Accuracy: ${(result.match_score * 100).toFixed(2)}%`);
-      }
       const action = attendanceAction;
-      if (result?.ok === true) {
-        const now = new Date();
-        const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        const localTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-        let data: any = null;
-        let capturedOffline = offlineModeEnabled;
-        if (capturedOffline) {
-          await enqueueOfflineAttendance({ userId: selectedUser.userId, username: selectedUser.username, name: selectedUser.name ?? null, action, date: localDate, time: localTime });
-          await refreshPendingSyncCount();
-        } else {
-          try {
-            data = await recordAttendance(action);
-          } catch (error) {
-            if (!isLikelyConnectivityError(error)) throw error;
-            capturedOffline = true;
-            setOfflineModeEnabled(true);
-            showOfflineToast();
-            await enqueueOfflineAttendance({ userId: selectedUser.userId, username: selectedUser.username, name: selectedUser.name ?? null, action, date: localDate, time: localTime });
-            await refreshPendingSyncCount();
-          }
-        }
-        if (action === 'clock_in') {
-          await storeClockInNotification({ date: data?.date || localDate, timein: data?.timein || localTime });
-          await saveStoredSession({ userId: selectedUser.userId, username: selectedUser.username, name: selectedUser.name ?? null, clockInTime: data?.timein || localTime, clockInDate: data?.date || localDate });
-          if (!capturedOffline && data?.emp_id != null) await AsyncStorage.setItem('emp_id', String(data.emp_id));
-        } else {
-          await clearStoredSession(selectedUser.userId);
-        }
-        await resetAttendanceFlow();
-        showModal('success',
-          action === 'clock_in' ? 'Clock In Success' : 'Clock Out Success',
-          capturedOffline ? 'Captured and saved offline.' : 'Face verified and recorded.',
-          '', 2000);
-      } else if (result?.verified === false) {
-        faceProcessingRef.current = false;
-        livenessTriggeredRef.current = false;
-        showModal('error', 'Verification Failed', result?.message || 'Face verification failed.', result?.hint || 'Please try again.', 2000);
+      const now = new Date();
+      const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const localTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      let data: any = null;
+      let capturedOffline = offlineModeEnabled;
+
+      if (capturedOffline) {
+        await enqueueOfflineAttendance({ userId: selectedUser!.userId, username: selectedUser!.username, name: selectedUser!.name ?? null, action, date: localDate, time: localTime });
+        await refreshPendingSyncCount();
       } else {
-        faceProcessingRef.current = false;
-        livenessTriggeredRef.current = false;
-        showModal('error', 'Verification Failed', 'Please try again.', '', 2000);
+        try {
+          data = await recordAttendance(action);
+        } catch (error) {
+          if (!isLikelyConnectivityError(error)) throw error;
+          capturedOffline = true;
+          setOfflineModeEnabled(true);
+          showOfflineToast();
+          await enqueueOfflineAttendance({ userId: selectedUser!.userId, username: selectedUser!.username, name: selectedUser!.name ?? null, action, date: localDate, time: localTime });
+          await refreshPendingSyncCount();
+        }
       }
+
+      if (action === 'clock_in') {
+        await storeClockInNotification({ date: data?.date || localDate, timein: data?.timein || localTime });
+        await saveStoredSession({ userId: selectedUser!.userId, username: selectedUser!.username, name: selectedUser!.name ?? null, clockInTime: data?.timein || localTime, clockInDate: data?.date || localDate });
+        if (!capturedOffline && data?.emp_id != null) await AsyncStorage.setItem('emp_id', String(data.emp_id));
+      } else {
+        await clearStoredSession(selectedUser!.userId);
+      }
+      
+      await resetAttendanceFlow();
+      workletPhase.value = 0; // Reset worklet phase
+      showModal('success',
+        action === 'clock_in' ? 'Clock In Success' : 'Clock Out Success',
+        capturedOffline ? 'Captured and saved offline.' : 'Face verified and recorded.',
+        '', 2000);
     } catch (e: any) {
       faceProcessingRef.current = false;
       livenessTriggeredRef.current = false;
@@ -452,24 +452,157 @@ export function useAttendance() {
     } finally {
       setIsVerifying(false);
     }
-  }, [attendanceAction, clearStoredSession, hasPermission, isLikelyConnectivityError, offlineModeEnabled, qrVerified, recordAttendance, refreshPendingSyncCount, resetAttendanceFlow, runVerification, saveStoredSession, selectedUser, showModal, showOfflineToast, storeClockInNotification, touchlessEnabled]);
+  }, [attendanceAction, clearStoredSession, enqueueOfflineAttendance, isLikelyConnectivityError, offlineModeEnabled, recordAttendance, refreshPendingSyncCount, resetAttendanceFlow, saveStoredSession, selectedUser, showModal, showOfflineToast, storeClockInNotification, workletPhase]);
 
-  // Liveness callback
-  const onLivenessDetected = Worklets.createRunOnJS(() => {
-    if (!livenessTriggeredRef.current && !modalVisibleRef.current && qrVerified && attendanceAction === 'clock_in' && countdownRef.current <= 0) {
-      console.log('[Liveness] ✅ Face liveness detected (eyes open)! Triggering attendance capture...');
+  // Main attendance handler (Concurrent Phase 1 & 2)
+  const handleAttendance = useCallback(async () => {
+    if (faceProcessingRef.current || isVerifying) return;
+    if (!qrVerified || !selectedUser) {
+      showModal('warning', 'Scan QR Code First', 'Please scan your personal QR code before continuing.', 'The user must scan a QR code.');
+      return;
+    }
+    if (!hasPermission) { showModal('warning', 'Camera Required', 'Please allow camera access to verify your identity.', ''); return; }
+    
+    faceProcessingRef.current = true;
+    identityStatusRef.current = 'pending';
+    
+    if (attendanceAction === 'clock_out') {
+      setIsVerifying(true);
+      await executeAttendanceRecording();
+      return;
+    }
+
+    console.log('[Attendance] Starting Concurrent Identity & Liveness Verification', { action: attendanceAction, userId: selectedUser.userId });
+    
+    let photoUri: string | undefined;
+    try {
+      if (!cameraRef.current) throw new Error('Camera not ready');
+
+      // Visual and Audio Snap Effect
       playSnapSound();
-      handleAttendance();
-      livenessTriggeredRef.current = true;
+      Animated.sequence([
+        Animated.timing(flashAnim, { toValue: 1, duration: 50, useNativeDriver: true }),
+        Animated.timing(flashAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
+      ]).start();
+
+      setIsCapturingHardware(true);
+      setLivenessMessage('Capturing...');
+      await new Promise(resolve => setTimeout(resolve, 50)); // Allow React to render UI changes
+
+      const photo1 = await cameraRef.current.takePhoto({ 
+        flash: 'off',
+        enableAutoRedEyeReduction: true,
+      });
+      setIsCapturingHardware(false);
+      if (!photo1?.path) throw new Error('No image captured');
+      photoUri = `file://${photo1.path}`;
+    } catch (e: any) {
+      setIsCapturingHardware(false);
+      faceProcessingRef.current = false;
+      identityStatusRef.current = 'failed';
+      modalContextRef.current = 'face_error';
+      showModal('error', 'Camera Error', e?.message || 'Failed to capture photo', '', 2000);
+      return;
+    }
+
+    if (livenessEnabled) {
+      livenessStatusRef.current = 'pending';
+      workletPhase.value = 2; // Activate liveness tracking immediately!
+      setLivenessMessage('Verifying Identity...\nPlease Blink or Smile');
+    } else {
+      setIsVerifying(true); // Only show blocking spinner if we don't need them to look at the screen
+    }
+
+    try {
+      const result = offlineModeEnabled 
+        ? { ok: true, verified: true, offlineCaptured: true, message: 'Face photos captured offline.', photoUri }
+        : await verifyFace(photoUri);
+
+      if (result?.match_score != null) console.log(`[Verify] Identity Match Accuracy: ${(result.match_score * 100).toFixed(2)}%`);
+
+      if (result?.ok === true) {
+        identityStatusRef.current = 'passed';
+        if (!livenessEnabled || livenessStatusRef.current === 'passed') {
+          // If liveness is disabled, or they ALREADY blinked while uploading
+          await executeAttendanceRecording();
+        } else {
+          // They haven't blinked yet
+          setLivenessMessage('Identity Match!\nWaiting for Blink or Smile...');
+        }
+      } else if (result?.verified === false) {
+        identityStatusRef.current = 'failed';
+        workletPhase.value = 3;
+        setIsVerifying(false);
+        faceProcessingRef.current = false;
+        modalContextRef.current = 'face_error';
+        showModal('error', 'Verification Failed', result?.message || 'Face verification failed.', result?.hint || 'Please try again.', 2000);
+      } else {
+        identityStatusRef.current = 'failed';
+        workletPhase.value = 3;
+        setIsVerifying(false);
+        faceProcessingRef.current = false;
+        modalContextRef.current = 'face_error';
+        showModal('error', 'Verification Failed', 'Please try again.', '', 2000);
+      }
+    } catch (e: any) {
+      identityStatusRef.current = 'failed';
+      workletPhase.value = 3;
+      setIsVerifying(false);
+      faceProcessingRef.current = false;
+      modalContextRef.current = 'face_error';
+      const showOfflineError = offlineModeEnabled || isLikelyConnectivityError(e);
+      showModal('error', showOfflineError ? 'Offline Mode Error' : 'Connection Error', e?.message || 'Please try again.', showOfflineError ? 'Connect once to refresh employee QR cache.' : 'Check your internet connection', 2000);
+    }
+  }, [attendanceAction, hasPermission, isLikelyConnectivityError, livenessEnabled, offlineModeEnabled, qrVerified, selectedUser, showModal, workletPhase, executeAttendanceRecording, verifyFace, flashAnim]);
+
+  const onFaceDetectedForIdentity = Worklets.createRunOnJS(() => {
+    if (!touchlessEnabled || modalVisibleRef.current || !qrVerified || attendanceAction !== 'clock_in' || countdownRef.current > 0 || faceProcessingRef.current || isVerifying) return;
+    console.log('[Face] Face detected! Triggering Identity Capture...');
+    handleAttendance();
+  });
+
+  const onActiveLivenessPassed = Worklets.createRunOnJS(() => {
+    if (livenessStatusRef.current === 'passed' || modalVisibleRef.current || !qrVerified || attendanceAction !== 'clock_in') return;
+    console.log('[Liveness] ✅ Active Liveness (Physical Blink/Smile) Verified!');
+    livenessStatusRef.current = 'passed';
+    
+    if (identityStatusRef.current === 'passed') {
+      // Face++ already finished and matched!
+      executeAttendanceRecording();
+    } else if (identityStatusRef.current === 'pending') {
+      // Still waiting on Face++ network request
+      setLivenessMessage('Liveness passed!\nWaiting for network...');
+      setIsVerifying(true); // Show spinner while network finishes
     }
   });
 
-  const isProcessingFace = useSharedValue(false);
+  const [livenessMessage, setLivenessMessage] = useState('Face the camera directly');
+  
+  const updateLivenessMessage = Worklets.createRunOnJS((msg: string) => {
+    setLivenessMessage((prev) => {
+      if (prev !== msg) return msg;
+      return prev;
+    });
+  });
+
+  const [uiCapturingHardware, setUiCapturingHardware] = useState(false);
+  const setIsCapturingHardware = (val: boolean) => {
+    setUiCapturingHardware(val);
+    isCapturingHardwareRef.value = val;
+  };
+  const updateUiCapturingHardware = Worklets.createRunOnJS((isCapturing: boolean) => {
+    setUiCapturingHardware(isCapturing);
+  });
 
   const frameProcessor = useFrameProcessor((frame) => {
     'worklet';
-    if (isProcessingFace.value) return;
+    if (isProcessingFace.value || workletPhase.value === 1 || workletPhase.value === 3 || isCapturingHardwareRef.value) return;
     
+    // Auto-capture logic move to worklet thread for higher precision
+    if (workletPhase.value === 0) {
+      if (!sharedTouchlessEnabled.value || sharedCountdownValue.value > 0) return;
+    }
+
     isProcessingFace.value = true;
     runAsync(frame, () => {
       'worklet';
@@ -477,15 +610,69 @@ export function useAttendance() {
         const faces = detectFaces(frame);
         if (faces.length > 0) {
           const face = faces[0];
-          const leftOpen = (face.leftEyeOpenProbability || 0) > 0.4;
-          const rightOpen = (face.rightEyeOpenProbability || 0) > 0.4;
-          if (leftOpen || rightOpen) onLivenessDetected();
+          const leftOpenProb = face.leftEyeOpenProbability ?? 1;
+          const rightOpenProb = face.rightEyeOpenProbability ?? 1;
+          const smileProb = face.smilingProbability ?? 0;
+          
+          const isEyesOpen = leftOpenProb > 0.4 && rightOpenProb > 0.4; // Relaxed for Phase 1
+          const isEyesClosed = leftOpenProb < 0.2 && rightOpenProb < 0.2;
+          const isSmiling = smileProb > 0.7;
+          const isNotSmiling = smileProb < 0.3;
+
+          if (workletPhase.value === 0) {
+            // PHASE 1: Trigger Identity Capture when face is fully visible
+            if (isEyesOpen) {
+              onFaceDetectedForIdentity();
+            }
+          } else if (workletPhase.value === 2) {
+            // PHASE 2: Active Liveness (Blink or Smile)
+            if (blinkState.value === 0 && isEyesOpen) {
+              if (isNotSmiling) {
+                blinkState.value = 1; 
+                updateLivenessMessage('Please Blink or Smile to verify');
+              } else {
+                // If they are already smiling when they walk up, they MUST blink to prove a physical action
+                blinkState.value = 10;
+                updateLivenessMessage('Please Blink to verify');
+              }
+            } else if (blinkState.value === 1) {
+              if (isEyesClosed) {
+                blinkState.value = 2; // Blink started
+                updateLivenessMessage('Open your eyes');
+              } else if (isSmiling) {
+                blinkState.value = 3; // Genuine new smile detected
+                updateLivenessMessage('Verified!');
+                onActiveLivenessPassed();
+              }
+            } else if (blinkState.value === 10) {
+              if (isEyesClosed) {
+                blinkState.value = 2; // Blink started
+                updateLivenessMessage('Open your eyes');
+              } else if (isNotSmiling) {
+                // They stopped smiling, reset baseline to 1 so they can now smile or blink
+                blinkState.value = 1;
+                updateLivenessMessage('Please Blink or Smile to verify');
+              }
+            } else if (blinkState.value === 2) {
+              if (isEyesOpen) {
+                blinkState.value = 3; // Blink completed
+                updateLivenessMessage('Verified!');
+                onActiveLivenessPassed();
+              }
+            }
+          }
+        } else {
+          // Reset if face is lost
+          if (workletPhase.value === 2 && blinkState.value !== 0 && blinkState.value !== 3) {
+            blinkState.value = 0;
+            updateLivenessMessage('Face the camera directly');
+          }
         }
       } finally {
         isProcessingFace.value = false;
       }
     });
-  }, [qrVerified, attendanceAction, detectFaces]);
+  }, [detectFaces, sharedTouchlessEnabled, sharedCountdownValue, onFaceDetectedForIdentity, onActiveLivenessPassed, updateLivenessMessage, isCapturingHardwareRef, workletPhase, blinkState, isProcessingFace]);
 
   // QR scanner
   const handleBarcodeScanned = async (event: any) => {
@@ -532,7 +719,7 @@ export function useAttendance() {
         setTimeout(() => {
           setQrSuccessLocal(false);
           setQrVerified(true);
-          const initialCountdown = livenessEnabled ? 3 : 0;
+          const initialCountdown = livenessEnabled ? 2 : 0;
           setFaceCountdown(initialCountdown);
           countdownRef.current = initialCountdown;
           livenessTriggeredRef.current = false;
@@ -592,7 +779,7 @@ export function useAttendance() {
       setTimeout(() => {
         setQrSuccessLocal(false);
         setQrVerified(true);
-        const initialCountdown = livenessEnabled ? 3 : 0;
+        const initialCountdown = livenessEnabled ? 2 : 0;
         setFaceCountdown(initialCountdown);
         countdownRef.current = initialCountdown;
         livenessTriggeredRef.current = false;
@@ -651,26 +838,21 @@ export function useAttendance() {
     return () => clearTimeout(timer);
   }, [countdownActive, qrVerified, attendanceAction, isVerifying, faceCountdown]);
 
-  // Automatic trigger for touchless mode when liveness is disabled
-  useEffect(() => {
-    if (touchlessEnabled && !livenessEnabled && qrVerified && faceCountdown === 0 && !isVerifying && !livenessTriggeredRef.current) {
-      livenessTriggeredRef.current = true;
-      playSnapSound();
-      handleAttendance();
-    }
-  }, [touchlessEnabled, livenessEnabled, qrVerified, faceCountdown, isVerifying, handleAttendance]);
-
   useEffect(() => {
     let active = true;
     AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, 'settings_liveness_enabled']).then((entries) => {
       if (active) {
         const mapped = Object.fromEntries(entries);
-        setTouchlessEnabled(mapped[TOUCHLESS_SETTING_KEY] === 'true');
-        setLivenessEnabled(mapped['settings_liveness_enabled'] !== 'false'); // Default true
+        const touchless = mapped[TOUCHLESS_SETTING_KEY] === 'true';
+        const liveness = mapped['settings_liveness_enabled'] !== 'false';
+        setTouchlessEnabled(touchless);
+        setLivenessEnabled(liveness);
+        sharedTouchlessEnabled.value = touchless;
+        sharedLivenessEnabled.value = liveness;
       }
     }).catch(() => { });
     return () => { active = false; };
-  }, []);
+  }, [sharedTouchlessEnabled, sharedLivenessEnabled]);
 
   useEffect(() => { if (!hasPermission) requestPermission(); }, [hasPermission, requestPermission]);
   useEffect(() => { const timer = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(timer); }, []);
@@ -716,10 +898,10 @@ export function useAttendance() {
     codeScanner, frameProcessor,
     flashAnim, scanLineAnim, scaleAnim,
     formattedTime, formattedDate,
-    isLoading, isVerifying, isQrLoading, isClockingOut,
+    isLoading, isVerifying, isQrLoading, isClockingOut, isCapturingHardware: uiCapturingHardware,
     qrVerified, qrSuccessLocal, selectedUser, clockInTime: displayClockInTime, faceCountdown,
     touchlessEnabled, offlineModeEnabled, livenessEnabled, pendingSyncCount,
-    showResultModal, modalType, modalTitle, modalMessage, modalHint,
+    showResultModal, modalType, modalTitle, modalMessage, modalHint, livenessMessage,
     closeModal, handleAttendance,
   };
 }

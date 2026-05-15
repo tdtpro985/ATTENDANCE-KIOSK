@@ -5,26 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c61fd802-3d0b-4601-a359-927ccc48dd2f" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/backups/facepp_api.php.bak" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backups/resolve_qr.php.bak" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backups/verify.php.bak" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/pr.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/App.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend-php/connect.php" beforeDir="false" afterPath="$PROJECT_DIR$/backend-php/connect.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend-php/employees.php" beforeDir="false" afterPath="$PROJECT_DIR$/backend-php/employees.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend-php/facepp_api.php" beforeDir="false" afterPath="$PROJECT_DIR$/backend-php/facepp_api.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend-php/resolve_qr.php" beforeDir="false" afterPath="$PROJECT_DIR$/backend-php/resolve_qr.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend-php/verify.php" beforeDir="false" afterPath="$PROJECT_DIR$/backend-php/verify.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/connect.php" beforeDir="false" afterPath="$PROJECT_DIR$/connect.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/employees.php" beforeDir="false" afterPath="$PROJECT_DIR$/employees.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/facepp_api.php" beforeDir="false" afterPath="$PROJECT_DIR$/facepp_api.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/resolve_qr.php" beforeDir="false" afterPath="$PROJECT_DIR$/resolve_qr.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/screens/EmployeeProfileData.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/screens/EmployeeProfileData.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/screens/attendance/types.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/screens/attendance/types.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/config/backend.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/config/backend.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/screens/attendance/FaceScanView.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/screens/attendance/FaceScanView.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/screens/attendance/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/screens/attendance/index.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/screens/attendance/useAttendance.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/screens/attendance/useAttendance.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/screens/settings/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/screens/settings/index.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/offlineUsers.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/offlineUsers.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/verify.php" beforeDir="false" afterPath="$PROJECT_DIR$/verify.php" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

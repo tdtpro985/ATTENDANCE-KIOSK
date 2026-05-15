@@ -64,15 +64,16 @@ export default function AttendanceScanner({ onBack, onOpenOffline }: AttendanceP
           formattedTime={state.formattedTime}
           formattedDate={state.formattedDate}
           isVerifying={state.isVerifying}
+          isCapturingHardware={state.isCapturingHardware}
           isClockingOut={state.isClockingOut}
-          touchlessEnabled={state.touchlessEnabled}
-          offlineModeEnabled={state.offlineModeEnabled}
+          touchlessEnabled={state.touchlessEnabled}          offlineModeEnabled={state.offlineModeEnabled}
           livenessEnabled={state.livenessEnabled}
           pendingSyncCount={state.pendingSyncCount}
           faceCountdown={state.faceCountdown}
           clockInTime={state.clockInTime}
           selectedUser={state.selectedUser}
           accentColor={state.colors.accent}
+          livenessMessage={state.livenessMessage}
           onBack={onBack}
           onOpenOffline={onOpenOffline}
           onAttendance={state.handleAttendance}
