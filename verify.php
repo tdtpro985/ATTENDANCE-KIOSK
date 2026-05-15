@@ -1,6 +1,7 @@
 <?php
 ini_set('display_errors', '0');
 ini_set('display_startup_errors', '0');
+ini_set('memory_limit', '512M');
 error_reporting(E_ALL);
 ob_start();
 
@@ -19,6 +20,7 @@ register_shutdown_function(function () {
         ]);
     }
 });
+// Verify endpoint - accepts multipart form with 'photo' file and optional 'user_id'
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
@@ -30,139 +32,213 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-require_once __DIR__ . '/connect.php';
-
-if (file_exists(__DIR__ . '/facepp_api.php')) {
-    require_once __DIR__ . '/facepp_api.php';
-}
-
-// 1. Read Primary Photo
-if (empty($_FILES['photo']) || empty($_FILES['photo']['tmp_name'])) {
-    http_response_code(400);
-    echo json_encode(['ok' => false, 'message' => 'Missing primary photo file']);
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['ok' => false, 'message' => 'Method not allowed']);
     exit;
 }
 
-$photoData1 = @file_get_contents($_FILES['photo']['tmp_name']);
+require_once __DIR__ . '/connect.php';
+
+// Try to include Face++ helper if available
+if (file_exists(__DIR__ . '/facepp_api.php')) {
+    require_once __DIR__ . '/facepp_api.php';
+}
+// Try to include Luxand helper if available
+if (file_exists(__DIR__ . '/luxand_face_api.php')) {
+    require_once __DIR__ . '/luxand_face_api.php';
+}
+
+// Read uploaded files
+if (empty($_FILES['photo']) || empty($_FILES['photo']['tmp_name'])) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'message' => 'Missing photo file']);
+    exit;
+}
+
+$tmp1 = $_FILES['photo']['tmp_name'];
+$photoData1 = @file_get_contents($tmp1);
+if ($photoData1 === false) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'message' => 'Failed to read primary photo']);
+    exit;
+}
+
 $photoBase64 = base64_encode($photoData1);
 
-// 2. Read Liveness Photo (Shot 2)
+// Optional: Liveness Photo (Shot 2)
 $photoLivenessBase64 = null;
 if (!empty($_FILES['photo_liveness']) && !empty($_FILES['photo_liveness']['tmp_name'])) {
-    $photoData2 = @file_get_contents($_FILES['photo_liveness']['tmp_name']);
+    $tmp2 = $_FILES['photo_liveness']['tmp_name'];
+    $photoData2 = @file_get_contents($tmp2);
     if ($photoData2 !== false) {
         $photoLivenessBase64 = base64_encode($photoData2);
     }
 }
 
 $userId = isset($_POST['user_id']) ? trim($_POST['user_id']) : null;
+
+// Require user_id so verification is tied to the logged-in user
 if (!$userId) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'message' => 'Missing user_id']);
+    echo json_encode([
+        'ok' => false,
+        'message' => 'Missing user_id',
+        'hint' => 'Send user_id from the logged-in session so verification matches the correct account.'
+    ]);
     exit;
 }
 
+// 1. LIVENESS CHECK (Micro-Movement)
+// 100% FREE security: Comparing Shot 1 vs Shot 2 to catch static photos.
 $faceppConfigured = function_exists('facepp_api_configured') ? facepp_api_configured() : false;
+$lScore = null;
 
-// 3. LIVENESS SECURITY CHECK
 if ($photoLivenessBase64 && $faceppConfigured && function_exists('facepp_compare_faces')) {
     $livenessResult = facepp_compare_faces($photoBase64, $photoLivenessBase64);
-    
+
     if ($livenessResult !== null) {
-        $lScore = $livenessResult['confidence_raw'] ?? ($livenessResult['confidence'] * 100);
-        
-        // REJECTION LOGIC FOR ID PICTURES:
-        // A handheld ID or phone screen typically scores > 99.2% similarity because the image is flat.
-        // A real person's skin and micro-movements result in 85% - 98% similarity.
-        
-        if ($lScore >= 99.2) {
+        $lScore = $livenessResult['confidence'];
+
+        // LOGIC UPDATE:
+        // - A handheld photo of a photo usually scores 0.995 to 0.997.
+        // - By setting the limit to 0.992 (99.2%), we block most spoofing attempts.
+        // - A real human should be in the 0.85 to 0.98 range.
+
+        if ($lScore >= 0.992) {
             http_response_code(401);
             echo json_encode([
                 'ok' => false,
                 'message' => 'Security Alert: Static photo detected.',
-                'hint' => 'Handheld photos, screen captures, or IDs are not allowed. Please face the camera naturally.',
-                'debug' => [
-                    'liveness_score' => $lScore,
-                    'status' => 'REJECTED_STATIC'
-                ]
+                'hint' => 'Please face the camera and blink. Handheld photos or screen captures are not allowed.',
+                'liveness_score' => $lScore,
+                'debug_info' => 'Similarity too high (' . ($lScore * 100) . '%) - looks like a static image.'
             ]);
             exit;
         }
-        
-        // If score is too low, they moved too much or it's a different person
-        if ($lScore < 75.0) {
+
+        if ($lScore < 0.80) {
             http_response_code(401);
             echo json_encode([
                 'ok' => false,
                 'message' => 'Liveness check failed.',
-                'hint' => 'Please hold the tablet steady.',
-                'debug' => ['liveness_score' => $lScore, 'status' => 'REJECTED_MOTION']
+                'hint' => 'Please hold the tablet steady and face the camera and Smile :).',
+                'liveness_score' => $lScore,
+                'debug_info' => 'Similarity too low (' . ($lScore * 100) . '%) - face moved too much or changed.'
             ]);
             exit;
         }
+
+        error_log("[Verify] Liveness Passed: Score " . $lScore);
     }
 }
 
-// 4. IDENTITY RECOGNITION (Against Database)
+// If user_id provided, fetch stored face from Supabase
 $storedFaceBase64 = null;
 [$status, $data, $err] = supabase_request('GET', "rest/v1/accounts?log_id=eq." . urlencode($userId) . "&select=face,username,log_id");
-
-if ($err || $status !== 200 || !is_array($data) || count($data) === 0) {
-    http_response_code(404);
-    echo json_encode(['ok' => false, 'message' => 'User not found or database error']);
+if ($err) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'message' => 'Database connection error', 'detail' => $err]);
     exit;
 }
-
-$storedFace = $data[0]['face'] ?? null;
+if ($status !== 200 || !is_array($data) || count($data) === 0) {
+    http_response_code(404);
+    echo json_encode(['ok' => false, 'message' => 'User not found']);
+    exit;
+}
+$account = $data[0];
+$storedFace = $account['face'] ?? null;
 if ($storedFace && is_string($storedFace)) {
+    // Normalize: PostgreSQL bytea can come back as hex (\x2f396a... or raw hex) or as text (data URI / base64)
     $hex = null;
-    if (strpos($storedFace, '\\x') === 0) $hex = substr($storedFace, 2);
-    elseif (strlen($storedFace) > 20 && ctype_xdigit($storedFace)) $hex = $storedFace;
-    
+    if (strpos($storedFace, '\\x') === 0 && strlen($storedFace) > 2) {
+        $hex = substr($storedFace, 2);
+    } elseif (strlen($storedFace) > 20 && ctype_xdigit($storedFace)) {
+        $hex = $storedFace;
+    }
     if ($hex !== null) {
         $decoded = @hex2bin($hex);
-        $storedFaceBase64 = ($decoded !== false) ? base64_encode($decoded) : $storedFace;
+        $storedFaceBase64 = ($decoded !== false) ? $decoded : $storedFace;
     } else {
-        $storedFaceBase64 = preg_replace('/^[^,]*;base64,/', '', trim($storedFace));
+        $storedFaceBase64 = $storedFace;
     }
+} else {
+    $storedFaceBase64 = null;
 }
 
+// If no stored face available, respond with 404 so client can fall back
 if (!$storedFaceBase64) {
     http_response_code(404);
     echo json_encode(['ok' => false, 'message' => 'No stored face for user']);
     exit;
 }
 
+// 2. IDENTITY VERIFICATION (Existing logic)
 if ($faceppConfigured && function_exists('facepp_compare_faces')) {
     $result = facepp_compare_faces($photoBase64, $storedFaceBase64);
-    
     if ($result === null) {
+        $err = function_exists('facepp_get_last_error') ? facepp_get_last_error() : 'Face comparison failed';
         http_response_code(500);
-        echo json_encode(['ok' => false, 'message' => 'Comparison error']);
+        echo json_encode(['ok' => false, 'message' => 'Face comparison error', 'detail' => $err]);
         exit;
     }
 
-    // IDENTITY MATCH
+    // result contains 'similar' boolean and confidence (0-1)
     if (!empty($result['similar'])) {
         echo json_encode([
             'ok' => true,
             'message' => 'Face matched',
             'match_score' => $result['confidence'],
-            'threshold' => $result['threshold']
+            'threshold' => $result['threshold'],
+            'captured_faces_count' => $result['captured_faces_count'] ?? null,
+            'reference_faces_count' => $result['reference_faces_count'] ?? null,
+            'liveness_score' => $lScore
         ]);
         exit;
     } else {
         http_response_code(401);
         echo json_encode([
             'ok' => false,
-            'message' => 'Face did not match database',
+            'message' => 'Face did not match',
             'match_score' => $result['confidence'],
-            'threshold' => $result['threshold']
+            'threshold' => $result['threshold'],
+            'captured_faces_count' => $result['captured_faces_count'] ?? null,
+            'reference_faces_count' => $result['reference_faces_count'] ?? null,
+            'liveness_score' => $lScore
         ]);
         exit;
     }
 }
 
+// (RESERVED: Placeholder for other providers like Luxand)
+/*
+$luxandConfigured = function_exists('luxand_face_api_configured') ? luxand_face_api_configured() : false;
+if ($luxandConfigured && function_exists('luxand_verify_faces')) {
+    // ... Luxand verification logic here
+}
+*/
+
+// Default: provider not configured and verification is required.
+$verifyMode = strtolower(trim((string) (getenv('FACE_VERIFY_MODE') ?: 'required')));
 http_response_code(501);
-echo json_encode(['ok' => false, 'message' => 'Face++ not configured']);
+echo json_encode([
+    'ok' => false,
+    'message' => 'No face recognition provider configured on server.',
+    'hint' => 'Set FACEPP_API_KEY and FACEPP_API_SECRET in the PHP server environment (or backend-php/.env), or set FACE_VERIFY_MODE=optional/off for dev, then restart the backend.',
+    'debug' => [
+        'facepp_configured' => $faceppConfigured,
+        'has_FACEPP_API_KEY' => !empty(getenv('FACEPP_API_KEY')),
+        'has_FACEPP_API_SECRET' => !empty(getenv('FACEPP_API_SECRET')),
+        'luxand_configured' => $luxandConfigured,
+        'FACE_VERIFY_MODE' => $verifyMode,
+    ],
+]);
 exit;
+
+?>
+
+<?php
+if (ob_get_level()) {
+    ob_end_flush();
+}
+?>

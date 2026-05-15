@@ -1,6 +1,7 @@
 <?php
 ini_set('display_errors', '0');
 ini_set('display_startup_errors', '0');
+ini_set('memory_limit', '512M');
 error_reporting(E_ALL);
 ob_start();
 
@@ -189,6 +190,8 @@ if ($faceppConfigured && function_exists('facepp_compare_faces')) {
             'message' => 'Face matched',
             'match_score' => $result['confidence'],
             'threshold' => $result['threshold'],
+            'captured_faces_count' => $result['captured_faces_count'] ?? null,
+            'reference_faces_count' => $result['reference_faces_count'] ?? null,
             'liveness_score' => $lScore
         ]);
         exit;
@@ -199,6 +202,8 @@ if ($faceppConfigured && function_exists('facepp_compare_faces')) {
             'message' => 'Face did not match',
             'match_score' => $result['confidence'],
             'threshold' => $result['threshold'],
+            'captured_faces_count' => $result['captured_faces_count'] ?? null,
+            'reference_faces_count' => $result['reference_faces_count'] ?? null,
             'liveness_score' => $lScore
         ]);
         exit;
