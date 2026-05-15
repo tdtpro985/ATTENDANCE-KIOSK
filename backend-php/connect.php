@@ -2,6 +2,7 @@
 // Supabase "database connection" helper file.
 ini_set('display_errors', '0');
 ini_set('display_startup_errors', '0');
+ini_set('memory_limit', '512M');
 error_reporting(E_ALL);
 // This file only contains the configuration and helper functions to talk to Supabase.
 
@@ -157,6 +158,53 @@ function supabase_request(string $method, string $path, ?array $body = null, arr
     return [$statusCode, $decoded, null];
 }
 
+/**
+ * Compresses a base64 image string to a smaller thumbnail
+ */
+function compress_base64_image(string $base64Str, int $maxWidth = 100, int $quality = 50): string
+{
+    try {
+        if (strpos($base64Str, 'data:image') === 0) {
+            $parts = explode(',', $base64Str);
+            $data = base64_decode($parts[1]);
+            $prefix = $parts[0] . ',';
+        } else {
+            $data = base64_decode($base64Str);
+            $prefix = 'data:image/jpeg;base64,';
+        }
+
+        $src = imagecreatefromstring($data);
+        if (!$src) return $base64Str;
+
+        $width = imagesx($src);
+        $height = imagesy($src);
+
+        if ($width <= $maxWidth) {
+            imagedestroy($src);
+            return $base64Str;
+        }
+
+        $newWidth = $maxWidth;
+        $newHeight = floor($height * ($maxWidth / $width));
+
+        $tmp = imagecreatetruecolor($newWidth, $newHeight);
+        imagealphablending($tmp, false);
+        imagesavealpha($tmp, true);
+        imagecopyresampled($tmp, $src, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+
+        ob_start();
+        imagejpeg($tmp, null, $quality);
+        $compressedData = ob_get_clean();
+
+        imagedestroy($src);
+        imagedestroy($tmp);
+
+        return 'data:image/jpeg;base64,' . base64_encode($compressedData);
+    } catch (Exception $e) {
+        return $base64Str;
+    }
+}
+
 function supabase_insert(string $table, array $row): array
 {
     return supabase_request('POST', "rest/v1/{$table}", $row, [
@@ -195,9 +243,3 @@ function supabase_select_single(string $table, array $filters = [], string $sele
     
     return [$status, $data, $err];
 }
-
-// No endpoint / echo logic here on purpose.
-// Include this file from other PHP scripts to use supabase_request() / supabase_insert().
-
-// No endpoint / echo logic here on purpose.
-// Include this file from other PHP scripts to use supabase_request() / supabase_insert().

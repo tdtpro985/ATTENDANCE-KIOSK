@@ -209,11 +209,11 @@ if ($action === 'clock_in') {
     exit;
 }
 
-// clock_out: find today's row for this emp with timeout IS NULL, then set timeout
-error_log("Attempting clock-out for emp_id: {$emp_id}, date: {$today}");
+// clock_out: find the MOST RECENT open session for this emp (timeout IS NULL), then set timeout
+error_log("Attempting clock-out for emp_id: {$emp_id}");
 [$status, $rows, $err] = supabase_request(
     'GET',
-    "rest/v1/attendance?emp_id=eq.{$emp_id}&date=eq.{$today}&timeout=is.null&order=att_id.desc&limit=1&select=att_id"
+    "rest/v1/attendance?emp_id=eq.{$emp_id}&timeout=is.null&order=att_id.desc&limit=1&select=att_id,date"
 );
 error_log("Clock-out query result - Status: {$status}, Rows found: " . count($rows ?? []) . ", Error: " . ($err ?: 'none'));
 

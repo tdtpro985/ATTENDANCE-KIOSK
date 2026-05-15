@@ -62,7 +62,7 @@ if (preg_match('/(?:LOG_?ID|USER):([^|]+)/i', $qr, $m)) {
 
 if (!$logId && !$username) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'message' => 'Invalid QR format (missing LOGID or USER)']);
+    echo json_encode(['ok' => false, 'message' => 'Invalid QR!']);
     exit;
 }
 
@@ -137,42 +137,40 @@ $address = null;
 $phone = null;
 $email = null;
 $department = null;
+$openSession = null;
 
 if ($resolvedLogId) {
     // First get basic employee data
-    $employeeQuery = "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=name,role,dept_id";
+    $employeeQuery = "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=emp_id,name,role,dept_id";
 
     [$s2, $empRows, $e2] = supabase_request(
         'GET',
         $employeeQuery
     );
 
-
-    // Debug: Get all departments to see table structure
-    $tableQueries = [
-        "rest/v1/departments?select=*&limit=10",
-        "rest/v1/department?select=*&limit=10"
-    ];
-
-    foreach ($tableQueries as $index => $query) {
-        [$allDeptStatus, $allDeptRows, $allDeptError] = supabase_request('GET', $query);
-
-        if ($allDeptRows && count($allDeptRows) > 0) {
-            break;
-        }
-    }
-
-    if ($empRows && count($empRows) > 0) {
-        $employee = $empRows[0];
-    }
-
     if (!$e2 && is_array($empRows) && count($empRows) > 0) {
         $employee = $empRows[0];
+        $empId = $employee['emp_id'] ?? null;
 
         $displayName = normalize_value($employee['name'] ?? null);
         $role = normalize_value($employee['role'] ?? null);
         $deptId = $employee['dept_id'] ?? null;
 
+        // Check for ANY open attendance session (timeout IS NULL)
+        // We remove the today filter so that if someone forgot to clock out yesterday,
+        // the kiosk will still show "Clock Out" to close that old session first.
+        if ($empId) {
+            $attQuery = "rest/v1/attendance?emp_id=eq." . urlencode($empId) . "&timeout=is.null&order=att_id.desc&limit=1&select=att_id,timein,date";
+            [$sAtt, $attRows, $eAtt] = supabase_request('GET', $attQuery);
+
+            if (!$eAtt && is_array($attRows) && count($attRows) > 0) {
+                $openSession = [
+                    'att_id' => $attRows[0]['att_id'],
+                    'timein' => $attRows[0]['timein'],
+                    'date' => $attRows[0]['date']
+                ];
+            }
+        }
 
         // Get department name if dept_id exists
         $department = null;
@@ -196,12 +194,13 @@ if ($resolvedLogId) {
         } else {
         }
 
-        // Get profile picture
+        // Get profile picture (do not fetch 'face' base64 to save huge bandwidth and time)
         [$s4, $accountRows, $e4] = supabase_request(
             'GET',
             "rest/v1/accounts?log_id=eq." . urlencode($resolvedLogId) . "&select=profile_picture"
         );
         $profilePicture = null;
+        $face = null;
         if (!$e4 && is_array($accountRows) && count($accountRows) > 0) {
             $profilePicture = normalize_value($accountRows[0]['profile_picture'] ?? null);
         }
@@ -217,8 +216,10 @@ $jsonResponse = json_encode([
         'username' => $resolvedUsername,
         'name' => $displayName,
         'profile_picture' => $profilePicture,
+        'face' => $face,
         'role' => $role,
         'department' => $department,
+        'open_session' => $openSession,
     ],
 ]);
 
