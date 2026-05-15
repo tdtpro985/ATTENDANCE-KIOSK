@@ -2,6 +2,7 @@
 // Supabase "database connection" helper file.
 ini_set('display_errors', '0');
 ini_set('display_startup_errors', '0');
+ini_set('memory_limit', '512M');
 error_reporting(E_ALL);
 // This file only contains the configuration and helper functions to talk to Supabase.
 
@@ -9,6 +10,7 @@ error_reporting(E_ALL);
 $envCandidates = [
     __DIR__ . '/../.env',
     __DIR__ . '/.env',
+    __DIR__ . '/backend-php/.env',
 ];
 foreach ($envCandidates as $envFile) {
     if (is_file($envFile) && is_readable($envFile)) {
@@ -65,8 +67,8 @@ function supabase_request(string $method, string $path, ?array $body = null, arr
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CUSTOMREQUEST  => strtoupper($method),
             CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_TIMEOUT        => 20, // 20 second timeout (increased for slow connections)
-            CURLOPT_CONNECTTIMEOUT => 10,  // 10 second connection timeout (increased)
+            CURLOPT_TIMEOUT        => 30, // 30 second timeout (increased for slow connections)
+            CURLOPT_CONNECTTIMEOUT => 15,  // 15 second connection timeout (increased)
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
         ]);
@@ -113,7 +115,7 @@ function supabase_request(string $method, string $path, ?array $body = null, arr
                 'method' => strtoupper($method),
                 'header' => implode("\r\n", $headers),
                 'ignore_errors' => true,
-                'timeout' => 20, // 20 second timeout (increased for slow connections)
+                'timeout' => 30, // 30 second timeout (increased for slow connections)
             ],
             'ssl' => [
                 'verify_peer' => true,
@@ -242,9 +244,3 @@ function supabase_select_single(string $table, array $filters = [], string $sele
     
     return [$status, $data, $err];
 }
-
-// No endpoint / echo logic here on purpose.
-// Include this file from other PHP scripts to use supabase_request() / supabase_insert().
-
-// No endpoint / echo logic here on purpose.
-// Include this file from other PHP scripts to use supabase_request() / supabase_insert().
