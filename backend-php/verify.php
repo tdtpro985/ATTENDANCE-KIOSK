@@ -1,6 +1,7 @@
 <?php
 ini_set('display_errors', '0');
 ini_set('display_startup_errors', '0');
+ini_set('memory_limit', '512M');
 error_reporting(E_ALL);
 ob_start();
 
@@ -93,6 +94,10 @@ if (!$userId) {
 $faceppConfigured = function_exists('facepp_api_configured') ? facepp_api_configured() : false;
 $lScore = null;
 
+if (isset($_POST['liveness_score'])) {
+    $lScore = floatval($_POST['liveness_score']);
+}
+
 if ($photoLivenessBase64 && $faceppConfigured && function_exists('facepp_compare_faces')) {
     $livenessResult = facepp_compare_faces($photoBase64, $photoLivenessBase64);
 
@@ -100,16 +105,17 @@ if ($photoLivenessBase64 && $faceppConfigured && function_exists('facepp_compare
         $lScore = $livenessResult['confidence'];
 
         // LOGIC UPDATE:
-        // - A handheld photo of a photo usually scores 0.995 to 0.997.
-        // - By setting the limit to 0.992 (99.2%), we block most spoofing attempts.
-        // - A real human should be in the 0.85 to 0.98 range.
+        // - We increased the camera gap between shots to 700ms.
+        // - A handheld static ID photo will still score very high (e.g., 95% - 98%) even with minor hand shake over 700ms.
+        // - A real, live breathing human will shift significantly over 700ms, naturally scoring between 70% and 90%.
+        // - By drastically tightening the limit to 0.930 (93.0%), we achieve maximum security against static pictures.
 
-        if ($lScore >= 0.992) {
+        if ($lScore >= 0.930) {
             http_response_code(401);
             echo json_encode([
                 'ok' => false,
-                'message' => 'Security Alert: Static photo detected.',
-                'hint' => 'Please face the camera and blink. Handheld photos or screen captures are not allowed.',
+                'message' => 'Liveness check failed.',
+                'hint' => 'Please face the camera, blink, and smile naturally :)',
                 'liveness_score' => $lScore,
                 'debug_info' => 'Similarity too high (' . ($lScore * 100) . '%) - looks like a static image.'
             ]);
@@ -117,11 +123,14 @@ if ($photoLivenessBase64 && $faceppConfigured && function_exists('facepp_compare
         }
 
         if ($lScore < 0.80) {
+            $isVeryLow = $lScore < 0.50;
             http_response_code(401);
             echo json_encode([
                 'ok' => false,
                 'message' => 'Liveness check failed.',
-                'hint' => 'Please hold the tablet steady and face the camera and Smile :).',
+                'hint' => $isVeryLow 
+                    ? 'Please face the camera directly. Handheld photos or screen captures are not allowed.'
+                    : 'Please hold the tablet steady, face the camera, and smile :).',
                 'liveness_score' => $lScore,
                 'debug_info' => 'Similarity too low (' . ($lScore * 100) . '%) - face moved too much or changed.'
             ]);
@@ -189,6 +198,8 @@ if ($faceppConfigured && function_exists('facepp_compare_faces')) {
             'message' => 'Face matched',
             'match_score' => $result['confidence'],
             'threshold' => $result['threshold'],
+            'captured_faces_count' => $result['captured_faces_count'] ?? null,
+            'reference_faces_count' => $result['reference_faces_count'] ?? null,
             'liveness_score' => $lScore
         ]);
         exit;
@@ -199,6 +210,8 @@ if ($faceppConfigured && function_exists('facepp_compare_faces')) {
             'message' => 'Face did not match',
             'match_score' => $result['confidence'],
             'threshold' => $result['threshold'],
+            'captured_faces_count' => $result['captured_faces_count'] ?? null,
+            'reference_faces_count' => $result['reference_faces_count'] ?? null,
             'liveness_score' => $lScore
         ]);
         exit;

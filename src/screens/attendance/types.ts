@@ -12,8 +12,13 @@ export type ResolvedUser = {
   username: string;
   name?: string | null;
   profile_picture?: string | null;
+  face?: string | null;
   role?: string | null;
   department?: string | null;
+  open_session?: {
+    timein: string;
+    date: string;
+  } | null;
 };
 
 export type StoredAttendanceSession = {
