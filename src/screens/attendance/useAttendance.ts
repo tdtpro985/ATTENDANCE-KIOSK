@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Platform, ToastAndroid } from 'react-native';
 import { BACKEND_URL } from '../../config/backend';
 import { enqueueOfflineAttendance, getOfflineAttendanceQueue } from '../../utils/offlineAttendance';
-import { refreshOfflineUserCache, resolveOfflineUserFromQr, upsertOfflineUserCacheUser } from '../../utils/offlineUsers';
+import { resolveOfflineUserFromQr, upsertOfflineUserCacheUser } from '../../utils/offlineUsers';
 import { useTheme } from '../../config/theme';
 import {
   ATTENDANCE_SESSIONS_KEY,
@@ -23,9 +23,22 @@ import {
   ModalType,
 } from './types';
 
+// Modal type definition is imported from ./types
+
+const sanitizeForLog = (obj: any) => {
+  if (!obj || typeof obj !== 'object') return obj;
+  const sanitized = { ...obj };
+  ['face', 'profile_picture', 'photo', 'photo_liveness'].forEach(key => {
+    if (sanitized[key] && typeof sanitized[key] === 'string' && sanitized[key].length > 100) {
+      const val = sanitized[key];
+      sanitized[key] = `${val.substring(0, 50)}...${val.slice(-10)} [truncated ${val.length} chars]`;
+    }
+  });
+  return sanitized;
+};
+
 export function useAttendance() {
   const { colors } = useTheme();
-  const NETWORK_PROBE_INTERVAL_MS = 5000;
   const NETWORK_TIMEOUT_MS = 2500;
   const NETWORK_TOAST_COOLDOWN_MS = 15000;
 
@@ -38,7 +51,7 @@ export function useAttendance() {
 
   // Refs
   const livenessTriggeredRef = useRef(false);
-  const countdownRef = useRef(3);
+  const countdownRef = useRef(0);
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modalContextRef = useRef<'qr_success' | 'other'>('other');
   const lastScanRef = useRef<{ data: string | null; ts: number }>({ data: null, ts: 0 });
@@ -50,12 +63,13 @@ export function useAttendance() {
   const lastOfflineToastAtRef = useRef(0);
 
   // State
-  const [faceCountdown, setFaceCountdown] = useState(3);
+  const [faceCountdown, setFaceCountdown] = useState(0);
   const [countdownActive, setCountdownActive] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [clockInTime, setClockInTime] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isQrLoading, setIsQrLoading] = useState(false);
+  const [qrSuccessLocal, setQrSuccessLocal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [qrVerified, setQrVerified] = useState(false);
   const [welcomeName, setWelcomeName] = useState<string | null>(null);
@@ -188,8 +202,8 @@ export function useAttendance() {
     setWelcomeName(null);
     setSelectedUser(null);
     setAttendanceAction('clock_in');
-    setFaceCountdown(3);
-    countdownRef.current = 3;
+    setFaceCountdown(0);
+    countdownRef.current = 0;
     setCountdownActive(false);
     modalContextRef.current = 'other';
     lastScanRef.current = { data: null, ts: 0 };
@@ -209,8 +223,16 @@ export function useAttendance() {
   // QR resolve
   const resolveUserFromQr = useCallback(async (qrData: string): Promise<ResolvedUser> => {
     try {
-      const response = await fetch(`${BACKEND_URL}/resolve_qr.php?qr=${encodeURIComponent(qrData)}`, {
-        headers: { Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' },
+      // FORCE SYNC: Add timestamp to URL to bypass any server/proxy cache
+      const timestamp = Date.now();
+      const response = await fetch(`${BACKEND_URL}/resolve_qr.php?qr=${encodeURIComponent(qrData)}&_t=${timestamp}`, {
+        headers: { 
+          'Accept': 'application/json', 
+          'ngrok-skip-browser-warning': 'true',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        },
       });
       const responseText = await response.text();
       console.log('[QR] Raw response', response.status, responseText?.slice?.(0, 200));
@@ -219,14 +241,33 @@ export function useAttendance() {
       catch { throw new Error(`Server returned invalid response. Status: ${response.status}`); }
       if (!response.ok) throw new Error(payload?.message || `QR validation failed. Status: ${response.status}`);
       if (!payload?.ok || !payload?.user?.log_id) throw new Error(payload?.message || 'QR not recognized');
+      
       const user = {
         userId: String(payload.user.log_id),
         username: String(payload.user.username || ''),
         name: payload.user.name ?? null,
         profile_picture: payload.user.profile_picture ?? null,
+        face: payload.user.face ?? null,
         role: payload.user.role ?? null,
         department: payload.user.department ?? null,
+        open_session: payload.user.open_session ?? null,
       };
+
+      // FORCE SYNC LOCAL CACHE: If server says user is clocked out, we MUST clear local session
+      if (!user.open_session) {
+        console.log(`[QR] Server says NO open session for ${user.username}. Clearing local cache.`);
+        await clearStoredSession(user.userId);
+      } else {
+        console.log(`[QR] Server says OPEN session found for ${user.username}. Saving to local cache.`);
+        await saveStoredSession({
+          userId: user.userId,
+          username: user.username,
+          name: user.name ?? null,
+          clockInTime: user.open_session.timein,
+          clockInDate: user.open_session.date
+        });
+      }
+
       setOfflineModeEnabled(false);
       await upsertOfflineUserCacheUser({
         userId: user.userId,
@@ -243,7 +284,7 @@ export function useAttendance() {
       setOfflineModeEnabled(true);
       showOfflineToast();
       const cachedUser = await resolveOfflineUserFromQr(qrData);
-      if (!cachedUser) throw new Error('Offline mode needs a previously cached employee list for this QR code.');
+      if (!cachedUser) throw new Error('Offline mode needs cached QR/user data for this code. Connect online and open Employee Directory or scan once online to cache it.');
       return { userId: cachedUser.userId, username: cachedUser.username, name: cachedUser.name ?? null, profile_picture: cachedUser.profile_picture ?? null, role: cachedUser.role ?? null, department: cachedUser.department ?? null };
     }
   }, [offlineModeEnabled, isLikelyConnectivityError, showOfflineToast]);
@@ -253,7 +294,11 @@ export function useAttendance() {
     let userId = null;
     try { userId = await AsyncStorage.getItem('userId'); } catch { }
     if (!userId) throw new Error('User not logged in (missing userId). Please log in again.');
-    console.log('[Verify] Sending face to backend', { userId, hasLiveness: !!photoUri2 });
+    console.log('[Verify] Sending face to backend', sanitizeForLog({
+      userId,
+      hasLiveness: !!photoUri2,
+      face_reference: selectedUser?.face
+    }));
     const form = new FormData();
     form.append('photo', { uri: photoUri1, name: 'selfie_1.jpg', type: 'image/jpeg' } as any);
     if (photoUri2) form.append('photo_liveness', { uri: photoUri2, name: 'selfie_2.jpg', type: 'image/jpeg' } as any);
@@ -268,7 +313,10 @@ export function useAttendance() {
     let json: any = {};
     try { json = responseText ? JSON.parse(responseText) : {}; } catch { throw new Error(`Server returned invalid response. Status: ${response.status}`); }
     if (response.status === 401 && json.message) {
-      console.log('[Verify] Face mismatch or Liveness failure', json);
+      console.log('[Verify] Face mismatch or Liveness failure', sanitizeForLog(json));
+      if (json.captured_faces_count != null || json.reference_faces_count != null) {
+        console.log(`[Verify] Debug Info: Faces detected in Live Capture: ${json.captured_faces_count ?? 0}, Faces detected in Database Reference: ${json.reference_faces_count ?? 0}`);
+      }
       return { ok: false, verified: false, message: json.message, hint: json.hint, match_score: json.match_score, threshold: json.threshold, liveness_score: json.liveness_score };
     }
     if (!response.ok || !json.ok) {
@@ -282,13 +330,22 @@ export function useAttendance() {
 
   const runVerification = useCallback(async () => {
     if (!cameraRef.current) throw new Error('Camera not ready');
-    const photo1 = await cameraRef.current.takePhoto({ flash: 'off' });
+    const photo1 = await cameraRef.current.takePhoto({ 
+      flash: 'off',
+      enableAutoRedEyeReduction: true,
+      qualityPrioritization: 'balanced',
+      enableAutoStabilization: true,
+    });
     if (!photo1?.path) throw new Error('No image captured (Shot 1)');
 
     let photo2;
     if (livenessEnabled) {
-      await new Promise(resolve => setTimeout(resolve, 600));
-      photo2 = await cameraRef.current.takePhoto({ flash: 'off' });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      photo2 = await cameraRef.current.takePhoto({ 
+        flash: 'off',
+        qualityPrioritization: 'balanced',
+        enableAutoStabilization: true,
+      });
       if (!photo2?.path) throw new Error('No image captured (Shot 2)');
     }
 
@@ -430,32 +487,110 @@ export function useAttendance() {
       Animated.timing(flashAnim, { toValue: 1, duration: 50, useNativeDriver: true }),
       Animated.timing(flashAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
     ]).start();
+    
     setIsQrLoading(true);
     try {
       console.log('[QR] Scanned', data);
+      
+      // 1. FAST PATH: Check Local Cache for instant UI transition
+      let cachedUser = null;
+      try {
+        cachedUser = await resolveOfflineUserFromQr(data);
+      } catch (e) {
+        console.log('[QR] Cache lookup error', e);
+      }
+
+      if (cachedUser) {
+        console.log('[QR] Loaded from local cache -> Instant UI transition for:', cachedUser.username);
+        const localSession = await getStoredSession(cachedUser.userId);
+        
+        await AsyncStorage.setItem('userId', cachedUser.userId);
+        await AsyncStorage.setItem('username', cachedUser.username);
+        setSelectedUser(cachedUser as ResolvedUser);
+        setWelcomeName(cachedUser.name || cachedUser.username || 'Employee');
+        setClockInTime(localSession?.clockInTime || '');
+        setAttendanceAction(localSession ? 'clock_out' : 'clock_in');
+        
+        setQrSuccessLocal(true);
+        setIsQrLoading(false);
+
+        // Show the success checkmark for 600ms before transitioning
+        setTimeout(() => {
+          setQrSuccessLocal(false);
+          setQrVerified(true);
+          const initialCountdown = livenessEnabled ? 3 : 0;
+          setFaceCountdown(initialCountdown);
+          countdownRef.current = initialCountdown;
+          livenessTriggeredRef.current = false;
+          touchlessTriggeredRef.current = false;
+          if (touchlessEnabled) {
+            setCountdownActive(true);
+          } else {
+            setCountdownActive(false);
+          }
+        }, 600);
+
+        // Background server sync to correct session state if needed
+        resolveUserFromQr(data).then(async (resolved) => {
+           let existingSession = null;
+           if (!offlineModeEnabled && resolved.open_session) {
+             existingSession = {
+               clockInTime: resolved.open_session.timein,
+               clockInDate: resolved.open_session.date,
+             };
+           } else {
+             existingSession = await getStoredSession(resolved.userId);
+           }
+           console.log('[QR] Background sync complete. Updated session state for:', resolved.username);
+           setClockInTime(existingSession?.clockInTime || '');
+           setAttendanceAction(existingSession ? 'clock_out' : 'clock_in');
+        }).catch(e => console.log('[QR] Background sync failed (Safe to ignore if offline)', e));
+
+        return; // Exit early so we don't block the UI thread!
+      }
+
+      // 2. SERVER PATH: If not in cache, fetch and await normally
+      console.log('[QR] Not in local cache, fetching from server...');
       const resolved = await resolveUserFromQr(data);
-      const existingSession = await getStoredSession(resolved.userId);
-      console.log('[QR] Resolved user', resolved);
+      
+      // Determine session state: Server-first (if online), Local fallback (if offline)
+      let existingSession = null;
+      if (!offlineModeEnabled && resolved.open_session) {
+        existingSession = {
+          clockInTime: resolved.open_session.timein,
+          clockInDate: resolved.open_session.date,
+        };
+      } else {
+        existingSession = await getStoredSession(resolved.userId);
+      }
+
+      console.log('[QR] Resolved user from server', sanitizeForLog(resolved));
       await AsyncStorage.setItem('userId', resolved.userId);
       await AsyncStorage.setItem('username', resolved.username);
       setSelectedUser(resolved);
       setWelcomeName(resolved.name || resolved.username || 'Employee');
       setClockInTime(existingSession?.clockInTime || '');
       setAttendanceAction(existingSession ? 'clock_out' : 'clock_in');
-      setQrVerified(true);
-      setFaceCountdown(3);
-      countdownRef.current = 3;
-      livenessTriggeredRef.current = false;
-      touchlessTriggeredRef.current = false;
-      if (touchlessEnabled) {
-        modalContextRef.current = 'qr_success';
-        showModal('success', 'QR Code Verified', existingSession ? `Welcome back, ${resolved.name || resolved.username}! Starting automatic clock-out...` : `Hello, ${resolved.name || resolved.username}! Get ready for automatic face scan.`, 'No need to touch the screen. Just look at the camera!', 2000);
-      } else {
-        modalContextRef.current = 'qr_success';
-        showModal('success', 'QR Code Verified', existingSession ? 'QR recognized. Tap CLOCK OUT to finish your session.' : 'QR recognized. Tap CLOCK IN and face the camera.', 'Please follow the on-screen buttons.', 2000);
-      }
+      
+      setQrSuccessLocal(true);
+      setIsQrLoading(false);
+      
+      setTimeout(() => {
+        setQrSuccessLocal(false);
+        setQrVerified(true);
+        const initialCountdown = livenessEnabled ? 3 : 0;
+        setFaceCountdown(initialCountdown);
+        countdownRef.current = initialCountdown;
+        livenessTriggeredRef.current = false;
+        touchlessTriggeredRef.current = false;
+        if (touchlessEnabled) {
+          setCountdownActive(true);
+        } else {
+          setCountdownActive(false);
+        }
+      }, 800);
     } catch (e: any) {
-      console.log('[QR] Validation error', e);
+      console.log('[QR] Validation error', e?.message || e);
       setQrVerified(false);
       qrProcessingRef.current = false;
       setSelectedUser(null);
@@ -527,39 +662,6 @@ export function useAttendance() {
   useEffect(() => { const timer = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => { refreshPendingSyncCount(); }, [refreshPendingSyncCount]);
   useEffect(() => {
-    let active = true;
-
-    const probeNetwork = async () => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
-      try {
-        const response = await fetch(`${BACKEND_URL}/settings.php`, {
-          headers: { Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' },
-          signal: controller.signal,
-        });
-        if (!active) return;
-        const online = response.ok;
-        setOfflineModeEnabled(!online);
-        if (online) {
-          refreshOfflineUserCache().catch(() => { });
-        }
-      } catch {
-        if (!active) return;
-        setOfflineModeEnabled(true);
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    };
-
-    probeNetwork();
-    const timer = setInterval(probeNetwork, NETWORK_PROBE_INTERVAL_MS);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, []);
-
-  useEffect(() => {
     if (offlineModeEnabled && !previousOfflineStateRef.current) {
       showOfflineToast();
     }
@@ -570,7 +672,7 @@ export function useAttendance() {
     if (!qrVerified || !touchlessEnabled || isVerifying || touchlessTriggeredRef.current) return;
     if (attendanceAction !== 'clock_out') return;
     touchlessTriggeredRef.current = true;
-    const timer = setTimeout(() => handleAttendance(), 1500);
+    const timer = setTimeout(() => handleAttendance(), 200);
     return () => clearTimeout(timer);
   }, [attendanceAction, handleAttendance, isVerifying, qrVerified, touchlessEnabled]);
 
@@ -601,7 +703,7 @@ export function useAttendance() {
     flashAnim, scanLineAnim, scaleAnim,
     formattedTime, formattedDate,
     isLoading, isVerifying, isQrLoading, isClockingOut,
-    qrVerified, selectedUser, clockInTime: displayClockInTime, faceCountdown,
+    qrVerified, qrSuccessLocal, selectedUser, clockInTime: displayClockInTime, faceCountdown,
     touchlessEnabled, offlineModeEnabled, livenessEnabled, pendingSyncCount,
     showResultModal, modalType, modalTitle, modalMessage, modalHint,
     closeModal, handleAttendance,

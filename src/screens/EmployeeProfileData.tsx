@@ -1,52 +1,147 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Dimensions } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BACKEND_URL } from '../config/backend';
-import { refreshOfflineUserCache } from '../utils/offlineUsers';
+import { updateOfflineUserCacheFromEmployees, getOfflineUserCache, clearOfflineUserCache } from '../utils/offlineUsers';
 import { useTheme, Colors } from '../config/theme';
 
-const { width: WINDOW_WIDTH } = Dimensions.get('window');
+const DIRECTORY_POLL_INTERVAL_MS = 20000;
+const LAST_SYNC_KEY = 'employee_directory_last_sync';
 
 type SortOption = 'name_asc' | 'name_desc';
+
+type Account = {
+  log_id: number;
+  username: string | null;
+  qr_code?: string | null;
+  profile_picture?: string | null;
+};
+
+type EmployeeRow = {
+  emp_id: number;
+  name: string;
+  role: string | null;
+  dept_id: number | null;
+  log_id: number | null;
+  accounts?: Account | Account[] | null;
+  departments?: {
+    name?: string | null;
+  } | null;
+};
 
 type Props = {
   onBack: () => void;
 };
 
+// Global in-memory cache to handle "already opened" case instantly
+let globalEmployeesCache: EmployeeRow[] = [];
+let globalLastSyncCache: number | null = null;
+
 export default function EmployeeProfileData({ onBack }: Props) {
-  type EmployeeRow = {
-    emp_id: number;
-    name: string;
-    role: string | null;
-    dept_id: number | null;
-    log_id: number | null;
-    accounts?: {
-      log_id: number;
-      username: string | null;
-      qr_code?: string | null;
-      profile_picture?: string | null;
-    } | null;
-    departments?: {
-      name?: string | null;
-    } | null;
+  const normalizeAccount = (val: Account | Account[] | null | undefined): Account | null => {
+    if (Array.isArray(val)) return val[0] ?? null;
+    return val ?? null;
   };
 
-  const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [employees, setEmployees] = useState<EmployeeRow[]>(globalEmployeesCache);
+  
+  const setUniqueEmployees = useCallback((data: EmployeeRow[]) => {
+    const seen = new Set<number>();
+    const unique = data.filter(emp => {
+      if (!emp.emp_id || seen.has(emp.emp_id)) return false;
+      seen.add(emp.emp_id);
+      return true;
+    });
+    setEmployees(unique);
+    globalEmployeesCache = unique;
+  }, []);
+
+  const employeesRef = useRef<EmployeeRow[]>(globalEmployeesCache);
   const [searchText, setSearchText] = useState('');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>('name_asc');
   const [selectedDept, setSelectedDept] = useState<string>('All Departments');
   const [selectedRole, setSelectedRole] = useState<string>('All Roles');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [showDeptDropdown, setShowDeptDropdown] = useState(false);
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(globalEmployeesCache.length === 0);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(globalLastSyncCache);
   const { colors, theme } = useTheme();
+  const isFetchingRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  // Animation for sliding shimmer
+  const shimmerTranslate = useRef(new Animated.Value(-1)).current;
+
+  useEffect(() => {
+    if (isRefreshing || (isLoading && employees.length === 0)) {
+      Animated.loop(
+        Animated.timing(shimmerTranslate, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        })
+      ).start();
+    } else {
+      shimmerTranslate.setValue(-1);
+    }
+  }, [isRefreshing, isLoading, employees.length, shimmerTranslate]);
+
+  const updateLastSync = useCallback(async (timestamp: number) => {
+    setLastUpdatedAt(timestamp);
+    globalLastSyncCache = timestamp;
+    await AsyncStorage.setItem(LAST_SYNC_KEY, String(timestamp));
+  }, []);
+
+  useEffect(() => {
+    employeesRef.current = employees;
+  }, [employees]);
+
+  const fetchEmployees = useCallback(async (options?: { showLoading?: boolean; manual?: boolean }) => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    
+    if (options?.showLoading && employeesRef.current.length === 0) {
+      setIsLoading(true);
+    }
+    
+    if (options?.manual) setIsRefreshing(true);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/employees.php`);
+      const payload = await response.json();
+
+      if (!payload?.ok || !Array.isArray(payload?.data)) {
+        throw new Error('Unable to sync employee directory');
+      }
+
+      const rows = payload.data as EmployeeRow[];
+      await updateOfflineUserCacheFromEmployees(rows);
+      
+      const now = Date.now();
+      if (!mountedRef.current) return;
+      setUniqueEmployees(rows);
+      await updateLastSync(now);
+    } catch (error) {
+      console.log('fetchEmployees error:', error);
+    } finally {
+      isFetchingRef.current = false;
+      if (mountedRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    }
+  }, [setUniqueEmployees, updateLastSync]);
 
   const departments = useMemo(() => {
     const depts = new Set<string>();
     employees.forEach(emp => {
-      if (emp.departments?.name) depts.add(emp.departments.name);
+      const deptName = emp?.departments?.name;
+      if (deptName) depts.add(deptName);
     });
     return ['All Departments', ...Array.from(depts).sort()];
   }, [employees]);
@@ -54,7 +149,7 @@ export default function EmployeeProfileData({ onBack }: Props) {
   const roles = useMemo(() => {
     const rls = new Set<string>();
     employees.forEach(emp => {
-      if (emp.role) rls.add(emp.role);
+      if (emp?.role) rls.add(emp.role);
     });
     return ['All Roles', ...Array.from(rls).sort()];
   }, [employees]);
@@ -67,36 +162,67 @@ export default function EmployeeProfileData({ onBack }: Props) {
   }, [searchText]);
 
   useEffect(() => {
-    const fetchEmployees = async () => {
-      let responseText = '';
+    mountedRef.current = true;
+    const bootstrap = async () => {
       try {
-        setIsLoading(true);
-        const response = await fetch(`${BACKEND_URL}/employees.php`);
-        responseText = await response.text();
-        
-        try {
-          const payload = JSON.parse(responseText);
-          if (payload?.ok && Array.isArray(payload?.data)) {
-            setEmployees(payload.data);
-            setTimeout(() => {
-              refreshOfflineUserCache().catch(() => undefined);
-            }, 100);
-          }
-        } catch (parseError) {
-          console.log('employees.php JSON parse error:', parseError);
-          // Truncate long base64 data in the log to keep it readable
-          const sanitizedResponse = responseText.replace(/"(face|profile_picture|image)":"[^"]{100,}"/g, '"$1":"[face_data]"');
-          console.log('Raw response that failed to parse:', sanitizedResponse);
+        const [cached, lastSync] = await Promise.all([
+          getOfflineUserCache(),
+          AsyncStorage.getItem(LAST_SYNC_KEY)
+        ]);
+        if (!mountedRef.current) return;
+        if (lastSync) {
+          const ts = parseInt(lastSync);
+          setLastUpdatedAt(ts);
+          globalLastSyncCache = ts;
         }
-      } catch (error) {
-        console.log('employees.php fetch error:', error);
-      } finally {
-        setIsLoading(false);
+
+        if (cached && cached.length > 0) {
+          const mapped: EmployeeRow[] = cached.map(u => ({
+            emp_id: parseInt(u.userId) || 0,
+            name: u.name || '',
+            role: u.role || null,
+            dept_id: null,
+            log_id: parseInt(u.userId) || null,
+            accounts: {
+              log_id: parseInt(u.userId) || 0,
+              username: u.username,
+              qr_code: u.qrCode,
+              profile_picture: u.profile_picture
+            },
+            departments: { name: u.department }
+          }));
+          setUniqueEmployees(mapped);
+          setIsBootstrapping(false);
+          // Sync silently in background
+          fetchEmployees({ showLoading: false });
+        } else if (globalEmployeesCache.length > 0) {
+          // Already have memory cache, just end bootstrap and background sync
+          setIsBootstrapping(false);
+          fetchEmployees({ showLoading: false });
+        } else {
+          // No cache anywhere, must show loader
+          await fetchEmployees({ showLoading: true });
+          setIsBootstrapping(false);
+        }
+      } catch (e) {
+        console.error('Bootstrap error:', e);
+        if (employeesRef.current.length === 0) {
+          await fetchEmployees({ showLoading: true });
+        }
+        setIsBootstrapping(false);
       }
     };
+    bootstrap();
+    const pollTimer = setInterval(() => fetchEmployees({ showLoading: false }), DIRECTORY_POLL_INTERVAL_MS);
+    return () => {
+      mountedRef.current = false;
+      clearInterval(pollTimer);
+    };
+  }, [fetchEmployees, setUniqueEmployees]);
 
-    fetchEmployees();
-  }, []);
+  const handleManualRefresh = useCallback(() => {
+    fetchEmployees({ manual: true });
+  }, [fetchEmployees]);
 
   const sortedAndFilteredEmployees = useMemo(() => {
     let result = employees.filter(emp => {
@@ -174,13 +300,58 @@ export default function EmployeeProfileData({ onBack }: Props) {
     </View>
   );
 
+  const SkeletonCard = () => (
+    <View style={[styles.employeeCard, { backgroundColor: colors.surface, borderColor: colors.border, overflow: 'hidden' }]}>
+      <Animated.View 
+        style={[
+          styles.shimmerStreak, 
+          { 
+            transform: [{ 
+              translateX: shimmerTranslate.interpolate({
+                inputRange: [-1, 1],
+                outputRange: [-200, 600]
+              }) 
+            }] 
+          }
+        ]} 
+      />
+      <View style={[styles.accentStrip, { backgroundColor: colors.border, opacity: 0.3 }]} />
+      <View style={styles.cardContent}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.avatarRing, { borderColor: colors.border, opacity: 0.3 }]}>
+            <View style={[styles.profileImage, { backgroundColor: theme === 'light' ? '#e5e7eb' : '#5c5c5c' }]} />
+          </View>
+          <View style={styles.infoBlock}>
+            <View style={[styles.skeletonLine, { width: '80%', height: 20, marginBottom: 8, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242' }]} />
+            <View style={[styles.skeletonLine, { width: '50%', height: 14, backgroundColor: theme === 'light' ? '#f3f4f6' : '#404040' }]} />
+          </View>
+        </View>
+        <View style={styles.cardFooter}>
+          <View style={[styles.deptBadge, { width: 80, height: 24, backgroundColor: theme === 'light' ? '#f3f4f6' : '#2f2f2f' }]} />
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
         <Pressable onPress={onBack} style={styles.backButton}>
           <Text style={[styles.backText, { color: Colors.powerOrange }]}>{'<'} BACK</Text>
         </Pressable>
-        <Text style={[styles.title, { color: colors.text }]}>Employee Directory</Text>
+        <View style={styles.headerTitleWrap}>
+          <Text style={[styles.title, { color: colors.text }]}>Employee Directory</Text>
+        </View>
+        <Pressable
+          onPress={handleManualRefresh}
+          disabled={isRefreshing}
+          style={[
+            styles.refreshButton,
+            { backgroundColor: colors.surface, borderColor: colors.border, opacity: isRefreshing ? 0.6 : 1 },
+          ]}
+        >
+          <Text style={styles.refreshButtonText}>{isRefreshing ? 'SYNCING...' : 'REFRESH'}</Text>
+        </Pressable>
       </View>
 
       <View style={styles.stickyContainer}>
@@ -239,13 +410,19 @@ export default function EmployeeProfileData({ onBack }: Props) {
             </Text>
           </Pressable>
         </View>
+        <Text style={[styles.cacheStatusText, { color: colors.textSecondary }]}>
+          {lastUpdatedAt
+            ? `Last Sync: ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+            : 'Last Sync: Not yet synced'}
+        </Text>
       </View>
 
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.powerOrange} />
-          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Syncing Directory...</Text>
-        </View>
+      {(isRefreshing || (isLoading && employees.length === 0)) ? (
+        <ScrollView contentContainerStyle={styles.list} scrollEnabled={false}>
+          <View style={styles.gridContainer}>
+            {[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}
+          </View>
+        </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={styles.list} scrollEnabled={!showDeptDropdown && !showRoleDropdown}>
           <View style={styles.gridContainer}>
@@ -258,16 +435,19 @@ export default function EmployeeProfileData({ onBack }: Props) {
                 <View style={styles.cardContent}>
                   <View style={styles.cardHeader}>
                     <View style={[styles.avatarRing, { borderColor: Colors.powerOrange }]}>
-                      {emp.accounts?.profile_picture ? (
-                        <Image 
-                          source={{ uri: emp.accounts.profile_picture }} 
-                          style={styles.profileImage}
-                        />
-                      ) : (
-                        <View style={[styles.profileImage, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
-                          <Text style={{ color: colors.textSecondary, fontWeight: '800', fontSize: 24 }}>{emp.name.charAt(0)}</Text>
-                        </View>
-                      )}
+                      {(() => {
+                        const acc = normalizeAccount(emp.accounts);
+                        return acc?.profile_picture ? (
+                          <Image 
+                            source={{ uri: acc.profile_picture }} 
+                            style={styles.profileImage}
+                          />
+                        ) : (
+                          <View style={[styles.profileImage, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
+                            <Text style={{ color: colors.textSecondary, fontWeight: '800', fontSize: 24 }}>{emp.name.charAt(0)}</Text>
+                          </View>
+                        );
+                      })()}
                     </View>
                     <View style={styles.infoBlock}>
                       <Text style={[styles.employeeName, { color: colors.text }]} numberOfLines={1}>{emp.name}</Text>
@@ -286,7 +466,7 @@ export default function EmployeeProfileData({ onBack }: Props) {
               </View>
             ))}
           </View>
-          {sortedAndFilteredEmployees.length === 0 && (
+          {sortedAndFilteredEmployees.length === 0 && !isBootstrapping && !isLoading && (
             <View style={styles.emptyContainer}>
               <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No matching employees found.</Text>
             </View>
@@ -310,15 +490,33 @@ const styles = StyleSheet.create({
   backButton: {
     marginRight: 20,
   },
+  headerTitleWrap: {
+    flex: 1,
+  },
   backText: {
     fontSize: 18,
     fontWeight: '900',
     letterSpacing: 1,
   },
   title: {
-    fontSize: 32,
+    fontSize: 30,
     fontWeight: '900',
     letterSpacing: -0.5,
+  },
+  refreshButton: {
+    minWidth: 108,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  refreshButtonText: {
+    color: Colors.powerOrange,
+    fontWeight: '900',
+    fontSize: 12,
+    letterSpacing: 0.8,
   },
   stickyContainer: {
     paddingHorizontal: 32,
@@ -346,6 +544,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     alignItems: 'center',
+  },
+  cacheStatusText: {
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: '600',
   },
   dropdownContainer: {
     flex: 1,
@@ -407,15 +610,28 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1,
   },
+  skeletonLine: {
+    borderRadius: 4,
+  },
+  shimmerStreak: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: '100%',
+    backgroundColor: 'rgba(61, 61, 61, 0.15)',
+    zIndex: 10,
+    transform: [{ skewX: '-25deg' }],
+  },
   list: {
     paddingHorizontal: 32,
     paddingBottom: 40,
   },
   gridContainer: {
+    width: '100%',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 20,
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
+    rowGap: 20,
   },
   emptyContainer: {
     paddingTop: 100,
@@ -426,8 +642,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   employeeCard: {
-    width: (WINDOW_WIDTH - 84) / 2,
-    maxWidth: WINDOW_WIDTH > 1000 ? 400 : 450,
+    width: '49%',
     minHeight: 140,
     borderRadius: 24,
     borderWidth: 1.5,
@@ -493,3 +708,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 });
+

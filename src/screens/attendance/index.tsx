@@ -47,6 +47,7 @@ export default function AttendanceScanner({ onBack, onOpenOffline }: AttendanceP
           formattedTime={state.formattedTime}
           formattedDate={state.formattedDate}
           isQrLoading={state.isQrLoading}
+          qrSuccessLocal={state.qrSuccessLocal}
           touchlessEnabled={state.touchlessEnabled}
           offlineModeEnabled={state.offlineModeEnabled}
           pendingSyncCount={state.pendingSyncCount}

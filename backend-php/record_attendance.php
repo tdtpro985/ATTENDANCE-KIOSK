@@ -109,6 +109,8 @@ if (!is_array($body)) {
 
 $userId = isset($body['user_id']) ? trim((string)$body['user_id']) : '';
 $action = isset($body['action']) ? trim((string)$body['action']) : '';
+$providedDate = isset($body['date']) ? trim((string)$body['date']) : '';
+$providedTime = isset($body['time']) ? trim((string)$body['time']) : '';
 
 if ($userId === '' || !in_array($action, ['clock_in', 'clock_out'], true)) {
     http_response_code(400);
@@ -134,8 +136,17 @@ if ($status !== 200 || !is_array($empData) || count($empData) === 0) {
 $emp_id = (int)$empData[0]['emp_id'];
 $nowTime = null;
 date_default_timezone_set('Asia/Manila');
-$today = date('Y-m-d');
-$nowTime = date('H:i:s');
+
+// Use provided date/time for offline sync, otherwise use current
+if ($providedDate !== '' && $providedTime !== '') {
+    $today = $providedDate;
+    $nowTime = $providedTime;
+    error_log("Using provided date/time for offline sync: {$today} {$nowTime}");
+} else {
+    $today = date('Y-m-d');
+    $nowTime = date('H:i:s');
+    error_log("Using current date/time: {$today} {$nowTime}");
+}
 
 if ($action === 'clock_in') {
     // Check if already clocked in today (open session)
@@ -198,11 +209,11 @@ if ($action === 'clock_in') {
     exit;
 }
 
-// clock_out: find today's row for this emp with timeout IS NULL, then set timeout
-error_log("Attempting clock-out for emp_id: {$emp_id}, date: {$today}");
+// clock_out: find the MOST RECENT open session for this emp (timeout IS NULL), then set timeout
+error_log("Attempting clock-out for emp_id: {$emp_id}");
 [$status, $rows, $err] = supabase_request(
     'GET',
-    "rest/v1/attendance?emp_id=eq.{$emp_id}&date=eq.{$today}&timeout=is.null&order=att_id.desc&limit=1&select=att_id"
+    "rest/v1/attendance?emp_id=eq.{$emp_id}&timeout=is.null&order=att_id.desc&limit=1&select=att_id,date"
 );
 error_log("Clock-out query result - Status: {$status}, Rows found: " . count($rows ?? []) . ", Error: " . ($err ?: 'none'));
 
