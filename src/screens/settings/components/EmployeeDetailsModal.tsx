@@ -98,15 +98,21 @@ export default function EmployeeDetailsModal({ visible, onClose, employee }: Pro
   useEffect(() => {
     if (visible && employee?.emp_id) {
       fetchHistory();
-      fetchHqDetails();
     } else {
       setHistory([]);
-      setHqImage(null);
-      setHqLoading(false);
       setShowMonthDropdown(false);
       setStatusFilter('All');
     }
   }, [visible, employee, filter]);
+
+  useEffect(() => {
+    if (visible && employee?.emp_id) {
+      fetchHqDetails();
+    } else {
+      setHqImage(null);
+      setHqLoading(false);
+    }
+  }, [visible, employee?.emp_id]);
 
   const fetchHqDetails = async () => {
     if (!employee?.emp_id) return;
