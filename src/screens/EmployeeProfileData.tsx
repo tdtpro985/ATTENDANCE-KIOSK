@@ -178,10 +178,11 @@ export default function EmployeeProfileData({ onBack }: Props) {
   const roles = useMemo(() => {
     const rls = new Set<string>();
     employees.forEach(emp => {
-      if (emp?.role) rls.add(emp.role);
+      const matchesDept = selectedDept === 'All Departments' || emp.departments?.name === selectedDept;
+      if (matchesDept && emp?.role) rls.add(emp.role);
     });
     return ['All Roles', ...Array.from(rls).sort()];
-  }, [employees]);
+  }, [employees, selectedDept]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
