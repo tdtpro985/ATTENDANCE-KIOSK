@@ -98,28 +98,26 @@ export default function EmployeeDetailsModal({ visible, onClose, employee }: Pro
   useEffect(() => {
     if (visible && employee?.emp_id) {
       fetchHistory();
+      fetchHqDetails();
     } else {
       setHistory([]);
+      setHqImage(null);
+      setHqLoading(false);
       setShowMonthDropdown(false);
       setStatusFilter('All');
     }
   }, [visible, employee, filter]);
 
-  useEffect(() => {
-    if (visible && employee?.emp_id) {
-      fetchHqDetails();
-    } else {
-      setHqImage(null);
-      setHqLoading(false);
-    }
-  }, [visible, employee?.emp_id]);
-
   const fetchHqDetails = async () => {
-    if (!employee?.emp_id) return;
+    // We need to fetch the profile_picture again from the accounts table properly.
+    const account = Array.isArray(employee?.accounts) ? employee.accounts[0] : employee?.accounts;
+    const userId = account?.log_id || employee?.log_id;
+    
+    if (!userId) return;
     
     setHqLoading(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/employees.php?detail_id=${employee.emp_id}`);
+      const response = await fetch(`${BACKEND_URL}/employee_details.php?user_id=${userId}`);
       const text = await response.text();
       try {
         const payload = JSON.parse(text);
@@ -129,7 +127,7 @@ export default function EmployeeDetailsModal({ visible, onClose, employee }: Pro
           setHqImage(payload.user.profile_picture);
         }
       } catch (jsonErr) {
-        console.error('Invalid JSON from employees.php:', text.substring(0, 200));
+        console.error('Invalid JSON from employee_details.php:', text.substring(0, 200));
       }
     } catch (e) {
       console.error('Failed to fetch HQ image', e);

@@ -1,9 +1,9 @@
 <?php
 // Increase memory limit for large datasets (e.g. many base64 images)
 ini_set('memory_limit', '512M');
-// Disable errors in output to prevent JSON corruption
-ini_set('display_errors', '0');
-ini_set('display_startup_errors', '0');
+// Enable errors temporarily to catch fatal crashes in the output
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
 error_reporting(E_ALL);
 
 require_once __DIR__ . '/connect.php';
@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Check for Detail Mode (Fetch single employee with HQ 720p image)
+// Check for Detail Mode (Fetch single employee with HQ uncompressed image)
 $detailId = isset($_GET['detail_id']) ? $_GET['detail_id'] : null;
 
 if ($detailId) {
@@ -31,35 +31,19 @@ if ($detailId) {
     $user = null;
     if (is_array($data) && count($data) > 0) {
         $user = $data[0];
-        // Ensure profile_picture is properly handled
+        // Ensure profile_picture is properly prefixed if needed (base64)
         if (isset($user['accounts'])) {
-            $isArr = is_array($user['accounts']) && !isset($user['accounts']['profile_picture']);
-            $accRef = &$user['accounts'];
-            if ($isArr && count($user['accounts']) > 0) {
-                $accRef = &$user['accounts'][0];
-            }
-
-            if (isset($accRef['profile_picture']) && !empty($accRef['profile_picture'])) {
-                $img = $accRef['profile_picture'];
-                // Use 480p for safe memory management
-                $compressedImg = compress_base64_image($img, 480, 75);
-                if (strpos($compressedImg, 'data:image') !== 0) {
-                    $user['profile_picture_hq'] = 'data:image/jpeg;base64,' . $compressedImg;
+            $acc = isset($user['accounts']['profile_picture']) ? $user['accounts'] : (is_array($user['accounts']) && count($user['accounts']) > 0 ? $user['accounts'][0] : null);
+            if ($acc && isset($acc['profile_picture']) && !empty($acc['profile_picture'])) {
+                $img = $acc['profile_picture'];
+                if (strpos($img, 'data:image') !== 0) {
+                    $user['profile_picture_hq'] = 'data:image/jpeg;base64,' . $img;
                 } else {
-                    $user['profile_picture_hq'] = $compressedImg;
-                }
-                
-                // CRITICAL: Unset the original massive image to prevent memory exhaustion and JSON truncation
-                if ($isArr) {
-                    foreach($user['accounts'] as &$a) unset($a['profile_picture']);
-                } else {
-                    unset($user['accounts']['profile_picture']);
+                    $user['profile_picture_hq'] = $img;
                 }
             }
         }
     }
-
-    if (ob_get_level() > 0) ob_end_clean();
 
     echo json_encode([
         'ok' => $status >= 200 && $status < 300 && $user !== null,
