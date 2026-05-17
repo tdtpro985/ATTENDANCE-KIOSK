@@ -19,6 +19,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+// Check for Detail Mode (Fetch single employee with HQ uncompressed image)
+$detailId = isset($_GET['detail_id']) ? $_GET['detail_id'] : null;
+
+if ($detailId) {
+    $select = 'emp_id,name,role,dept_id,log_id,accounts(log_id,username,qr_code,profile_picture),departments(name)';
+    $path = "rest/v1/employees?select={$select}&emp_id=eq.{$detailId}";
+    
+    [$status, $data, $err] = supabase_request('GET', $path);
+    
+    $user = null;
+    if (is_array($data) && count($data) > 0) {
+        $user = $data[0];
+        // Ensure profile_picture is properly prefixed if needed (base64)
+        if (isset($user['accounts'])) {
+            $acc = isset($user['accounts']['profile_picture']) ? $user['accounts'] : (is_array($user['accounts']) && count($user['accounts']) > 0 ? $user['accounts'][0] : null);
+            if ($acc && isset($acc['profile_picture']) && !empty($acc['profile_picture'])) {
+                $img = $acc['profile_picture'];
+                if (strpos($img, 'data:image') !== 0) {
+                    $user['profile_picture_hq'] = 'data:image/jpeg;base64,' . $img;
+                } else {
+                    $user['profile_picture_hq'] = $img;
+                }
+            }
+        }
+    }
+
+    echo json_encode([
+        'ok' => $status >= 200 && $status < 300 && $user !== null,
+        'status' => $status,
+        'error' => $err ?: ($user === null ? 'User not found' : null),
+        'user' => $user,
+    ]);
+    exit;
+}
+
 // Return all employees and their associated account/dept data
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 0;
 $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 1000;

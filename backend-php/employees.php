@@ -1,9 +1,16 @@
 <?php
-// Increase memory limit for large datasets (e.g. many base64 images)
-ini_set('memory_limit', '512M');
-// Enable errors temporarily to catch fatal crashes in the output
-ini_set('display_errors', '1');
-ini_set('display_startup_errors', '1');
+/**
+ * employees.php
+ * Unified endpoint for employee directory and detail fetching.
+ */
+
+// Start output buffering immediately to catch any accidental output
+ob_start();
+
+ini_set('memory_limit', '1024M');
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
+ini_set('zlib.output_compression', 'Off');
 error_reporting(E_ALL);
 
 require_once __DIR__ . '/connect.php';
@@ -14,12 +21,66 @@ header('Access-Control-Allow-Headers: Content-Type, Authorization, apikey');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    ob_end_clean();
     http_response_code(200);
     echo json_encode(['ok' => true]);
     exit;
 }
 
-// Return all employees and their associated account/dept data
+// Check for Detail Mode (Fetch single employee)
+$detailId = isset($_GET['detail_id']) ? $_GET['detail_id'] : null;
+
+if ($detailId) {
+    // 1. Fetch Metadata first (NO IMAGE here to keep this response tiny)
+    $select = 'emp_id,name,role,dept_id,log_id,departments(name)';
+    $path = "rest/v1/employees?select={$select}&emp_id=eq.{$detailId}";
+    
+    [$status, $data, $err] = supabase_request('GET', $path);
+    
+    $user = null;
+    $profile_picture_hq = null;
+
+    if (is_array($data) && count($data) > 0) {
+        $user = $data[0];
+        $logId = $user['log_id'];
+        unset($data);
+
+        // 2. Fetch Image separately ONLY if user was found
+        if ($logId) {
+            $imgPath = "rest/v1/accounts?select=profile_picture&log_id=eq.{$logId}";
+            [$imgStatus, $imgRows, $imgErr] = supabase_request('GET', $imgPath);
+            
+            if (is_array($imgRows) && count($imgRows) > 0) {
+                $rawImg = $imgRows[0]['profile_picture'] ?? null;
+                if ($rawImg && !empty($rawImg)) {
+                    // Hyper-optimized for Modal stability: 240px width at 60% quality
+                    // This ensures the response is small enough to fit in any buffer (~20KB)
+                    $compressedImg = compress_base64_image($rawImg, 240, 60);
+                    
+                    if (strpos($compressedImg, 'data:image') !== 0) {
+                        $profile_picture_hq = 'data:image/jpeg;base64,' . $compressedImg;
+                    } else {
+                        $profile_picture_hq = $compressedImg;
+                    }
+                }
+                unset($imgRows);
+            }
+        }
+    }
+
+    if (ob_get_level() > 0) ob_end_clean();
+
+    echo json_encode([
+        'ok' => $status >= 200 && $status < 300 && $user !== null,
+        'status' => $status,
+        'error' => $err ?: ($user === null ? 'User not found' : null),
+        'user' => $user,
+        'profile_picture_hq' => $profile_picture_hq 
+    ]);
+    exit;
+}
+
+// --- List Mode ---
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 0;
 $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 1000;
 $offset = $page * $limit;
@@ -33,7 +94,6 @@ $path = "rest/v1/employees?select={$select}&order=emp_id&limit={$limit}&offset={
 if (is_array($data)) {
     foreach ($data as &$employee) {
         if (isset($employee['accounts'])) {
-            // Handle both object and array formats
             if (isset($employee['accounts']['profile_picture'])) {
                 $img = $employee['accounts']['profile_picture'];
                 if ($img && strlen($img) > 100) {
@@ -54,6 +114,8 @@ if (is_array($data)) {
         }
     }
 }
+
+if (ob_get_level() > 0) ob_end_clean();
 
 echo json_encode([
     'ok' => $status >= 200 && $status < 300,
