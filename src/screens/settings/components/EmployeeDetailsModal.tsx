@@ -249,10 +249,25 @@ export default function EmployeeDetailsModal({ visible, onClose, employee }: Pro
     const isActive = filter !== 'week' && filter !== 'month';
     const label = filter === 'all' ? 'All Time' : (isActive ? months[parseInt(filter as string, 10)] : 'Month');
     
+    const [buttonPos, setButtonPos] = useState({ x: 0, y: 0, width: 0, height: 0 });
+    const buttonRef = React.useRef<View>(null);
+
     return (
-      <View style={{ position: 'relative', zIndex: 50 }}>
+      <View 
+        ref={buttonRef} 
+        onLayout={() => {
+          buttonRef.current?.measureInWindow((x, y, width, height) => {
+            setButtonPos({ x, y, width, height });
+          });
+        }}
+      >
         <Pressable 
-          onPress={() => setShowMonthDropdown(!showMonthDropdown)}
+          onPress={() => {
+            buttonRef.current?.measureInWindow((x, y, width, height) => {
+              setButtonPos({ x, y, width, height });
+              setShowMonthDropdown(!showMonthDropdown);
+            });
+          }}
           style={[
             styles.filterBtn, 
             { backgroundColor: isActive ? Colors.powerOrange : (theme === 'light' ? '#f3f4f6' : '#2a2a2a') }
@@ -264,37 +279,53 @@ export default function EmployeeDetailsModal({ visible, onClose, employee }: Pro
           </Text>
         </Pressable>
 
-        {showMonthDropdown && (
-          <View style={[styles.dropdownList, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <ScrollView nestedScrollEnabled style={{ maxHeight: 200 }} showsVerticalScrollIndicator={true}>
-              <Pressable 
-                onPress={() => { setFilter('all'); setStatusFilter('All'); setShowMonthDropdown(false); }}
-                style={[styles.dropdownOption, filter === 'all' && { backgroundColor: theme === 'light' ? '#f3f4f6' : '#322721' }]}
+        <Modal visible={showMonthDropdown} transparent animationType="fade" onRequestClose={() => setShowMonthDropdown(false)}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowMonthDropdown(false)}>
+            <View style={[
+              styles.dropdownList, 
+              { 
+                backgroundColor: colors.surface, 
+                borderColor: colors.border, 
+                top: buttonPos.y + buttonPos.height + 5, 
+                left: buttonPos.x,
+                width: 140
+              }
+            ]}>
+              <ScrollView 
+                nestedScrollEnabled={true} 
+                style={{ maxHeight: 200 }} 
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
               >
-                <Text style={[styles.optionText, { color: colors.text }]}>All Time</Text>
-              </Pressable>
-              {months.map((m, idx) => {
-                const typeVal = idx.toString();
-                return (
-                  <Pressable 
-                    key={m} 
-                    onPress={() => {
-                      setFilter(typeVal);
-                      setStatusFilter('All');
-                      setShowMonthDropdown(false);
-                    }}
-                    style={[
-                      styles.dropdownOption,
-                      filter === typeVal && { backgroundColor: theme === 'light' ? '#f3f4f6' : '#322721' }
-                    ]}
-                  >
-                    <Text style={[styles.optionText, { color: colors.text }]}>{m}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
-        )}
+                <Pressable 
+                  onPress={() => { setFilter('all'); setStatusFilter('All'); setShowMonthDropdown(false); }}
+                  style={[styles.dropdownOption, filter === 'all' && { backgroundColor: theme === 'light' ? '#f3f4f6' : '#322721' }]}
+                >
+                  <Text style={[styles.optionText, { color: colors.text }]}>All Time</Text>
+                </Pressable>
+                {months.map((m, idx) => {
+                  const typeVal = idx.toString();
+                  return (
+                    <Pressable 
+                      key={m} 
+                      onPress={() => {
+                        setFilter(typeVal);
+                        setStatusFilter('All');
+                        setShowMonthDropdown(false);
+                      }}
+                      style={[
+                        styles.dropdownOption,
+                        filter === typeVal && { backgroundColor: theme === 'light' ? '#f3f4f6' : '#322721' }
+                      ]}
+                    >
+                      <Text style={[styles.optionText, { color: colors.text }]}>{m}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </Pressable>
+        </Modal>
       </View>
     );
   };
@@ -550,7 +581,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
-    paddingRight: 60, // Ensure no overlap with close button
+    paddingRight: 60,
   },
   headerLeftInfo: {
     flexDirection: 'row',
@@ -562,7 +593,7 @@ const styles = StyleSheet.create({
   filterRow: {
     flexDirection: 'row',
     gap: 8,
-    zIndex: 50,
+    zIndex: 10,
   },
   filterBtn: {
     flexDirection: 'row',
@@ -578,17 +609,17 @@ const styles = StyleSheet.create({
   },
   dropdownList: {
     position: 'absolute',
-    top: 40,
+    top: 45,
     right: 0,
-    width: 130,
+    width: 140,
     borderRadius: 12,
     borderWidth: 1.5,
-    elevation: 5,
+    elevation: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    zIndex: 1000,
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    zIndex: 100,
   },
   dropdownOption: {
     paddingVertical: 12,
@@ -598,7 +629,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  historyList: { flex: 1 },
+  historyList: { 
+    flex: 1,
+  },
   tableHeader: {
     flexDirection: 'row',
     paddingBottom: 12,
