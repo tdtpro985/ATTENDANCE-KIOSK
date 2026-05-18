@@ -44,7 +44,14 @@
           "cameraPermissionText": "This app needs access to your camera for face recognition.",
           "enableCodeScanner": true
         }
-      ]
+      ],
+      [
+        "react-native-fast-tflite",
+        {
+          "enableAndroidGpuLibraries": true
+        }
+      ],
+      "expo-asset"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
