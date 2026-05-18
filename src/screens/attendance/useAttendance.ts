@@ -102,6 +102,8 @@ export function useAttendance() {
   const { colors } = useTheme();
   const NETWORK_TIMEOUT_MS = 2500;
   const NETWORK_TOAST_COOLDOWN_MS = 15000;
+  const FACEPP_TOUCHLESS_COUNTDOWN_SECONDS = 3;
+  const TOUCHLESS_STABLE_FACE_FRAMES = 1;
 
   // Camera
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -125,6 +127,9 @@ export function useAttendance() {
   const identityStatusRef = useRef<'idle' | 'pending' | 'passed' | 'failed'>('idle');
   const livenessStatusRef = useRef<'idle' | 'pending' | 'passed'>('idle');
   const livenessScoreRef = useRef<number | null>(null);
+  const faceppCountdownStartedRef = useRef(false);
+  const touchlessEnabledRef = useRef(false);
+  const faceEngineRef = useRef<FaceEngine>('facepp');
 
   // Shared Values (moved up to avoid use-before-declaration)
   const workletPhase = useSharedValue(0);
@@ -133,15 +138,10 @@ export function useAttendance() {
   const isCapturingHardwareRef = useSharedValue(false);
   const sharedTouchlessEnabled = useSharedValue(false);
   const sharedLivenessEnabled = useSharedValue(true);
-  const sharedCountdownValue = useSharedValue(0);
+  const stableFaceFrames = useSharedValue(0);
 
   // State
   const [faceCountdown, setFaceCountdown] = useState(0);
-
-  // Sync state with shared values
-  useEffect(() => {
-    sharedCountdownValue.value = faceCountdown;
-  }, [faceCountdown, sharedCountdownValue]);
   const [countdownActive, setCountdownActive] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [clockInTime, setClockInTime] = useState('');
@@ -235,25 +235,28 @@ export function useAttendance() {
       setShowResultModal(false);
       scaleAnim.setValue(0);
       if (modalContextRef.current === 'qr_success') {
-        if (touchlessEnabled) {
-          setCountdownActive(true);
-        } else {
-          setFaceCountdown(0);
-          countdownRef.current = 0;
-          setCountdownActive(false);
-        }
+        setFaceCountdown(0);
+        countdownRef.current = 0;
+        setCountdownActive(false);
+        faceppCountdownStartedRef.current = false;
+        stableFaceFrames.value = 0;
         modalContextRef.current = 'other';
       } else if (modalContextRef.current === 'face_error') {
         workletPhase.value = 0;
         blinkState.value = 0;
         setLivenessMessage('Face the camera directly');
+        setFaceCountdown(0);
+        countdownRef.current = 0;
+        setCountdownActive(false);
+        faceppCountdownStartedRef.current = false;
+        stableFaceFrames.value = 0;
         identityStatusRef.current = 'idle';
         livenessStatusRef.current = 'idle';
         livenessScoreRef.current = null;
         modalContextRef.current = 'other';
       }
     });
-  }, [scaleAnim, touchlessEnabled, workletPhase, blinkState]);
+  }, [scaleAnim, workletPhase, blinkState, stableFaceFrames]);
 
   const showModal = useCallback(
     (type: ModalType, title: string, message: string, hint: string, autoCloseMs?: number) => {
@@ -312,6 +315,8 @@ export function useAttendance() {
     modalContextRef.current = 'other';
     lastScanRef.current = { data: null, ts: 0 };
     touchlessTriggeredRef.current = false;
+    faceppCountdownStartedRef.current = false;
+    stableFaceFrames.value = 0;
     qrProcessingRef.current = false;
     faceProcessingRef.current = false;
     identityStatusRef.current = 'idle';
@@ -331,6 +336,22 @@ export function useAttendance() {
       setPendingSyncCount(queue.filter((item) => item.status === 'pending').length);
     } catch { setPendingSyncCount(0); }
   }, []);
+
+  const applyScannerSettings = useCallback(async () => {
+    const entries = await AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, 'settings_liveness_enabled', 'settings_face_engine']);
+    const mapped = Object.fromEntries(entries);
+    const touchless = mapped[TOUCHLESS_SETTING_KEY] === 'true';
+    const liveness = mapped['settings_liveness_enabled'] !== 'false';
+    const engine: FaceEngine = mapped['settings_face_engine'] === 'camera_vision' ? 'camera_vision' : 'facepp';
+    touchlessEnabledRef.current = touchless;
+    faceEngineRef.current = engine;
+    setTouchlessEnabled(touchless);
+    setLivenessEnabled(liveness);
+    setFaceEngine(engine);
+    sharedTouchlessEnabled.value = touchless;
+    sharedLivenessEnabled.value = liveness;
+    return { touchless, liveness, engine };
+  }, [sharedTouchlessEnabled, sharedLivenessEnabled]);
 
   // QR resolve
   const resolveUserFromQr = useCallback(async (qrData: string): Promise<ResolvedUser> => {
@@ -736,9 +757,17 @@ export function useAttendance() {
   }, [attendanceAction, touchlessEnabled, hasPermission, isLikelyConnectivityError, livenessEnabled, offlineModeEnabled, qrVerified, selectedUser, showModal, workletPhase, executeAttendanceRecording, verifyFace, verifyFaceLocal, faceEngine, flashAnim, captureEmbeddingFromFrame]);
 
   const onFaceDetectedForIdentity = Worklets.createRunOnJS(() => {
-    if (!touchlessEnabled || modalVisibleRef.current || !qrVerified || attendanceAction !== 'clock_in' || countdownRef.current > 0 || faceProcessingRef.current || isVerifying) return;
-    console.log('[Face] Face detected! Triggering Identity Capture...');
+    if (!touchlessEnabledRef.current || modalVisibleRef.current || !qrVerified || attendanceAction !== 'clock_in' || countdownRef.current > 0 || countdownActive || faceProcessingRef.current || isVerifying) return;
+    if (faceEngineRef.current === 'facepp') return;
+
+    console.log('[Face] Stable face detected! Triggering Identity Capture...');
     handleAttendance();
+  });
+
+  const onTouchlessFaceLost = Worklets.createRunOnJS(() => {
+    if (!touchlessEnabledRef.current || faceProcessingRef.current || isVerifying) return;
+    if (faceEngineRef.current === 'facepp' && faceppCountdownStartedRef.current) return;
+    setLivenessMessage('Face the camera directly');
   });
 
   const onActiveLivenessPassed = Worklets.createRunOnJS((score: number) => {
@@ -805,11 +834,11 @@ export function useAttendance() {
       return;
     }
 
-    if (isProcessingFace.value || workletPhase.value === 1 || workletPhase.value === 3 || isCapturingHardwareRef.value) return;
+    if (isProcessingFace.value || workletPhase.value === 1 || isCapturingHardwareRef.value) return;
     
     // Auto-capture logic move to worklet thread for higher precision
     if (workletPhase.value === 0) {
-      if (!sharedTouchlessEnabled.value || sharedCountdownValue.value > 0) return;
+      if (!sharedTouchlessEnabled.value) return;
     }
 
     isProcessingFace.value = true;
@@ -819,22 +848,21 @@ export function useAttendance() {
         const faces = detectFaces(frame);
         if (faces.length > 0) {
           const face = faces[0];
-          const leftOpenProb = face.leftEyeOpenProbability ?? 1;
-          const rightOpenProb = face.rightEyeOpenProbability ?? 1;
-          const smileProb = face.smilingProbability ?? 0;
-          
-          const isEyesOpen = leftOpenProb > 0.4 && rightOpenProb > 0.4; // Relaxed for Phase 1
-          const isEyesClosed = leftOpenProb < 0.2 && rightOpenProb < 0.2;
-          const isSmiling = smileProb > 0.7;
-          const isNotSmiling = smileProb < 0.3;
 
           if (workletPhase.value === 0) {
-            // PHASE 1: Trigger Identity Capture when face is fully visible
-            if (isEyesOpen) {
+            stableFaceFrames.value = Math.min(stableFaceFrames.value + 1, TOUCHLESS_STABLE_FACE_FRAMES);
+            if (stableFaceFrames.value >= TOUCHLESS_STABLE_FACE_FRAMES) {
               onFaceDetectedForIdentity();
             }
           } else if (workletPhase.value === 2) {
             // PHASE 2: Active Liveness (Blink or Smile)
+            const leftOpenProb = face.leftEyeOpenProbability ?? 1;
+            const rightOpenProb = face.rightEyeOpenProbability ?? 1;
+            const smileProb = face.smilingProbability ?? 0;
+            const isEyesOpen = leftOpenProb > 0.4 && rightOpenProb > 0.4;
+            const isEyesClosed = leftOpenProb < 0.2 && rightOpenProb < 0.2;
+            const isSmiling = smileProb > 0.7;
+            const isNotSmiling = smileProb < 0.3;
             if (blinkState.value === 0 && isEyesOpen) {
               if (isNotSmiling) {
                 blinkState.value = 1; 
@@ -874,6 +902,12 @@ export function useAttendance() {
             }
           }
         } else {
+          if (workletPhase.value === 0) {
+            if (stableFaceFrames.value !== 0) {
+              stableFaceFrames.value = 0;
+            }
+            onTouchlessFaceLost();
+          }
           // Reset if face is lost
           if (workletPhase.value === 2 && blinkState.value !== 0 && blinkState.value !== 3) {
             blinkState.value = 0;
@@ -884,7 +918,7 @@ export function useAttendance() {
         isProcessingFace.value = false;
       }
     });
-  }, [detectFaces, sharedTouchlessEnabled, sharedCountdownValue, onFaceDetectedForIdentity, onActiveLivenessPassed, updateLivenessMessage, isCapturingHardwareRef, workletPhase, blinkState, isProcessingFace, tfliteModel, captureEmbeddingFlag, onEmbeddingCaptured, onEmbeddingFailed]);
+  }, [detectFaces, sharedTouchlessEnabled, onFaceDetectedForIdentity, onTouchlessFaceLost, onActiveLivenessPassed, updateLivenessMessage, isCapturingHardwareRef, workletPhase, blinkState, isProcessingFace, stableFaceFrames, tfliteModel, captureEmbeddingFlag, onEmbeddingCaptured, onEmbeddingFailed]);
 
   // QR scanner
   const handleBarcodeScanned = async (event: any) => {
@@ -903,6 +937,11 @@ export function useAttendance() {
     
     setIsQrLoading(true);
     try {
+      const currentSettings = await applyScannerSettings().catch(() => ({
+        touchless: touchlessEnabledRef.current,
+        liveness: livenessEnabled,
+        engine: faceEngineRef.current,
+      }));
       console.log('[QR] Scanned', data);
       
       // 1. FAST PATH: Check Local Cache for instant UI transition
@@ -930,25 +969,23 @@ export function useAttendance() {
         // Show the success checkmark for 600ms before transitioning
         setTimeout(async () => {
           setQrSuccessLocal(false);
+          workletPhase.value = 0;
           setQrVerified(true);
           
           const isClockOut = localSession ? true : false;
           
           // Automatic clock-out if touchless is enabled
-          if (isClockOut && touchlessEnabled) {
+          if (isClockOut && currentSettings.touchless) {
              setAttendanceAction('clock_out');
              await handleAttendance();
           } else {
-             const initialCountdown = livenessEnabled ? 2 : 0;
-             setFaceCountdown(initialCountdown);
-             countdownRef.current = initialCountdown;
-             livenessTriggeredRef.current = false;
-             touchlessTriggeredRef.current = false;
-             if (touchlessEnabled) {
-               setCountdownActive(true);
-             } else {
-               setCountdownActive(false);
-             }
+            setFaceCountdown(0);
+            countdownRef.current = 0;
+            livenessTriggeredRef.current = false;
+            touchlessTriggeredRef.current = false;
+            faceppCountdownStartedRef.current = false;
+            stableFaceFrames.value = 0;
+            setCountdownActive(false);
           }
         }, 600);
 
@@ -999,17 +1036,15 @@ export function useAttendance() {
       
       setTimeout(() => {
         setQrSuccessLocal(false);
+        workletPhase.value = 0;
         setQrVerified(true);
-        const initialCountdown = livenessEnabled ? 2 : 0;
-        setFaceCountdown(initialCountdown);
-        countdownRef.current = initialCountdown;
+        setFaceCountdown(0);
+        countdownRef.current = 0;
         livenessTriggeredRef.current = false;
         touchlessTriggeredRef.current = false;
-        if (touchlessEnabled) {
-          setCountdownActive(true);
-        } else {
-          setCountdownActive(false);
-        }
+        faceppCountdownStartedRef.current = false;
+        stableFaceFrames.value = 0;
+        setCountdownActive(false);
       }, 800);
     } catch (e: any) {
       console.log('[QR] Validation error', e?.message || e);
@@ -1060,21 +1095,58 @@ export function useAttendance() {
   }, [countdownActive, qrVerified, attendanceAction, isVerifying, faceCountdown]);
 
   useEffect(() => {
-    let active = true;
-    AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, 'settings_liveness_enabled', 'settings_face_engine']).then((entries) => {
-      if (active) {
-        const mapped = Object.fromEntries(entries);
-        const touchless = mapped[TOUCHLESS_SETTING_KEY] === 'true';
-        const liveness = mapped['settings_liveness_enabled'] !== 'false';
-        setTouchlessEnabled(touchless);
-        setLivenessEnabled(liveness);
-        setFaceEngine((mapped['settings_face_engine'] as FaceEngine) || 'facepp');
-        sharedTouchlessEnabled.value = touchless;
-        sharedLivenessEnabled.value = liveness;
-      }
-    }).catch(() => { });
-    return () => { active = false; };
-  }, [sharedTouchlessEnabled, sharedLivenessEnabled]);
+    if (!countdownActive || !touchlessEnabled || !qrVerified || attendanceAction !== 'clock_in') return;
+    if (faceEngine !== 'facepp') return;
+    if (showResultModal || modalVisibleRef.current) return;
+    if (faceCountdown > 0 || isVerifying || faceProcessingRef.current) return;
+    setCountdownActive(false);
+    faceppCountdownStartedRef.current = false;
+    handleAttendance();
+  }, [attendanceAction, countdownActive, faceCountdown, faceEngine, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+
+  useEffect(() => {
+    if (!touchlessEnabled || !qrVerified || attendanceAction !== 'clock_in') return;
+    if (faceEngine !== 'facepp') return;
+    if (isVerifying || faceProcessingRef.current || showResultModal || modalVisibleRef.current) return;
+    if (countdownActive || faceCountdown > 0 || faceppCountdownStartedRef.current) return;
+    faceppCountdownStartedRef.current = true;
+    setFaceCountdown(FACEPP_TOUCHLESS_COUNTDOWN_SECONDS);
+    countdownRef.current = FACEPP_TOUCHLESS_COUNTDOWN_SECONDS;
+    setCountdownActive(true);
+    setLivenessMessage(`Capturing in ${FACEPP_TOUCHLESS_COUNTDOWN_SECONDS}...`);
+  }, [attendanceAction, countdownActive, faceCountdown, faceEngine, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+
+  useEffect(() => {
+    if (!touchlessEnabled || !qrVerified || attendanceAction !== 'clock_in') return;
+    if (faceEngine !== 'camera_vision') return;
+    if (isVerifying || faceProcessingRef.current || showResultModal || modalVisibleRef.current) return;
+    const timer = setTimeout(() => {
+      handleAttendance();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [attendanceAction, faceEngine, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+
+  useEffect(() => {
+    if (faceEngine === 'facepp') return;
+    faceppCountdownStartedRef.current = false;
+    if (countdownRef.current > 0 || countdownActive || faceCountdown > 0) {
+      setFaceCountdown(0);
+      countdownRef.current = 0;
+      setCountdownActive(false);
+    }
+  }, [countdownActive, faceCountdown, faceEngine]);
+
+  useEffect(() => {
+    touchlessEnabledRef.current = touchlessEnabled;
+  }, [touchlessEnabled]);
+
+  useEffect(() => {
+    faceEngineRef.current = faceEngine;
+  }, [faceEngine]);
+
+  useEffect(() => {
+    applyScannerSettings().catch(() => { });
+  }, [applyScannerSettings]);
 
   useEffect(() => { if (!hasPermission) requestPermission(); }, [hasPermission, requestPermission]);
   useEffect(() => { const timer = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(timer); }, []);
