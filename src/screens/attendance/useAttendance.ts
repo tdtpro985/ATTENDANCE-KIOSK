@@ -28,30 +28,244 @@ import {
   ResolvedUser,
   StoredAttendanceSession,
   ModalType,
+  FaceScanStage,
+  CameraVisionEyeStatus,
+  CameraVisionFaceTelemetry,
 } from './types';
 
 
 // Worklet-safe nearest-neighbour resize: RGB/RGBA frame → Float32 [1,112,112,3] tensor buffer
-function resizeFrameToTensor(buffer: ArrayBuffer, srcW: number, srcH: number): ArrayBuffer {
+// faceBox is optional; if provided, we crop to that region before resizing to 112x112.
+function resizeFrameToTensor(buffer: ArrayBuffer, srcW: number, srcH: number, faceBox?: NormalizedFaceBox): ArrayBuffer {
   'worklet';
   const SIZE = 112;
   const src = new Uint8Array(buffer);
   const bytesPerPx = Math.round(src.length / (srcW * srcH)); // 3=RGB, 4=RGBA
   const dst = new Float32Array(SIZE * SIZE * 3);
-  const xr = srcW / SIZE;
-  const yr = srcH / SIZE;
+
+  // If faceBox is provided, we crop. Otherwise full frame.
+  const cropX = faceBox ? Math.floor(faceBox.x * srcW) : 0;
+  const cropY = faceBox ? Math.floor(faceBox.y * srcH) : 0;
+  const cropW = faceBox ? Math.floor(faceBox.width * srcW) : srcW;
+  const cropH = faceBox ? Math.floor(faceBox.height * srcH) : srcH;
+
+  const xr = cropW / SIZE;
+  const yr = cropH / SIZE;
+
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
-      const sx = Math.min(Math.floor(x * xr), srcW - 1);
-      const sy = Math.min(Math.floor(y * yr), srcH - 1);
+      // Map dst(x,y) back to src(sx, sy) within the crop region
+      const sx = cropX + Math.min(Math.floor(x * xr), cropW - 1);
+      const sy = cropY + Math.min(Math.floor(y * yr), cropH - 1);
+      
       const si = (sy * srcW + sx) * bytesPerPx;
       const di = (y * SIZE + x) * 3;
+
       dst[di]     = src[si]     / 255.0;
       dst[di + 1] = src[si + 1] / 255.0;
       dst[di + 2] = src[si + 2] / 255.0;
     }
   }
   return dst.buffer;
+}
+
+type NormalizedFaceBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type UiFaceBox = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+type FaceSelection = {
+  box: NormalizedFaceBox;
+  confidence: number | null;
+  sourceFace: any;
+};
+
+function extractNormalizedFaceBox(face: any, frameWidth: number, frameHeight: number): NormalizedFaceBox | null {
+  'worklet';
+  if (!face) return null;
+  const rawBounds = face.bounds ?? face.boundaries ?? face.frame ?? face.boundingBox ?? face.box ?? face.rect ?? null;
+  if (!rawBounds) return null;
+
+  const bx = rawBounds.x ?? rawBounds.left ?? rawBounds.origin?.x;
+  const by = rawBounds.y ?? rawBounds.top ?? rawBounds.origin?.y;
+  const bw = rawBounds.width ?? rawBounds.w ?? rawBounds.size?.width;
+  const bh = rawBounds.height ?? rawBounds.h ?? rawBounds.size?.height;
+  if (bx == null || by == null || bw == null || bh == null) return null;
+  if (frameWidth <= 0 || frameHeight <= 0) return null;
+
+  const toNumber = (value: unknown): number => {
+    'worklet';
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : Number.NaN;
+    }
+    return Number.NaN;
+  };
+  const xVal = toNumber(bx);
+  const yVal = toNumber(by);
+  const wVal = toNumber(bw);
+  const hVal = toNumber(bh);
+  if (!Number.isFinite(xVal) || !Number.isFinite(yVal) || !Number.isFinite(wVal) || !Number.isFinite(hVal)) return null;
+
+  // Some detectors return normalized [0..1], others return pixel coordinates.
+  const looksNormalized = xVal >= -0.5 && yVal >= -0.5 && wVal > 0 && hVal > 0 && xVal <= 1.5 && yVal <= 1.5 && wVal <= 1.5 && hVal <= 1.5;
+  const nx = looksNormalized ? xVal : xVal / frameWidth;
+  const ny = looksNormalized ? yVal : yVal / frameHeight;
+  const nw = looksNormalized ? wVal : wVal / frameWidth;
+  const nh = looksNormalized ? hVal : hVal / frameHeight;
+
+  const clampedX = Math.max(0, Math.min(1, nx));
+  const clampedY = Math.max(0, Math.min(1, ny));
+  const clampedW = Math.max(0.04, Math.min(1, nw));
+  const clampedH = Math.max(0.04, Math.min(1, nh));
+  if (clampedW <= 0 || clampedH <= 0) return null;
+  return { x: clampedX, y: clampedY, width: clampedW, height: clampedH };
+}
+
+function isFaceBoxDetected(faceBox: NormalizedFaceBox): boolean {
+  'worklet';
+  if (faceBox.width < 0.04 || faceBox.height < 0.04) return false;
+  if (faceBox.width > 0.98 || faceBox.height > 0.98) return false;
+  if (faceBox.x + faceBox.width < 0.02 || faceBox.y + faceBox.height < 0.02) return false;
+  if (faceBox.x > 0.98 || faceBox.y > 0.98) return false;
+  return true;
+}
+
+function selectBestDetectedFace(faces: any[], frameWidth: number, frameHeight: number): FaceSelection | null {
+  'worklet';
+  let best: { box: NormalizedFaceBox; confidence: number | null; score: number; sourceFace: any } | null = null;
+  for (let i = 0; i < faces.length; i++) {
+    const face = faces[i];
+    const box = extractNormalizedFaceBox(face, frameWidth, frameHeight);
+    if (!box || !isFaceBoxDetected(box)) continue;
+    const rawConfidence =
+      face?.faceProbability ??
+      face?.probability ??
+      face?.confidence ??
+      face?.score ??
+      face?.trackingConfidence;
+    const confidence = typeof rawConfidence === 'number' && !Number.isNaN(rawConfidence)
+      ? Math.max(0, Math.min(1, rawConfidence))
+      : null;
+    const aspectRatio = box.width / Math.max(0.001, box.height);
+    if (aspectRatio < 0.5 || aspectRatio > 1.8) continue;
+
+    const landmarks = face?.landmarks;
+    const landmarkCount = landmarks && typeof landmarks === 'object' ? Object.keys(landmarks).length : 0;
+    const leftEyeProb = face?.leftEyeOpenProbability;
+    const rightEyeProb = face?.rightEyeOpenProbability;
+    const hasEyeProbabilities =
+      typeof leftEyeProb === 'number' &&
+      typeof rightEyeProb === 'number' &&
+      leftEyeProb >= 0 &&
+      leftEyeProb <= 1 &&
+      rightEyeProb >= 0 &&
+      rightEyeProb <= 1;
+
+    const yaw = face?.yawAngle;
+    const roll = face?.rollAngle;
+    const hasPlausiblePose =
+      typeof yaw === 'number' &&
+      typeof roll === 'number' &&
+      Math.abs(yaw) <= 45 &&
+      Math.abs(roll) <= 45;
+
+    if (confidence != null && confidence < 0.62) continue;
+    if (confidence == null && landmarkCount < 3 && !hasEyeProbabilities && !hasPlausiblePose) continue;
+
+    const areaScore = box.width * box.height;
+    const confidenceScore = confidence ?? 0.5;
+    const landmarkScore = Math.min(1, landmarkCount / 6);
+    const score = areaScore + confidenceScore * 0.12 + landmarkScore * 0.08;
+    if (!best || score > best.score) best = { box, confidence, score, sourceFace: face };
+  }
+  if (!best) return null;
+  return { box: best.box, confidence: best.confidence, sourceFace: best.sourceFace };
+}
+
+function isFaceBoxUsableForRecognition(faceBox: NormalizedFaceBox): boolean {
+  'worklet';
+  const area = faceBox.width * faceBox.height;
+  const centerX = faceBox.x + faceBox.width / 2;
+  const centerY = faceBox.y + faceBox.height / 2;
+
+  if (faceBox.width < 0.12 || faceBox.height < 0.16) return false;
+  if (area < 0.022) return false;
+  if (faceBox.x < 0.005 || faceBox.y < 0.005) return false;
+  if (faceBox.x + faceBox.width > 0.995 || faceBox.y + faceBox.height > 0.995) return false;
+  if (centerX < 0.14 || centerX > 0.86 || centerY < 0.14 || centerY > 0.86) return false;
+  return true;
+}
+
+function selectBestRecognitionFace(faces: any[], frameWidth: number, frameHeight: number): FaceSelection | null {
+  'worklet';
+  const detectedFace = selectBestDetectedFace(faces, frameWidth, frameHeight);
+  if (!detectedFace) return null;
+  if (isFaceBoxUsableForRecognition(detectedFace.box)) return detectedFace;
+
+  // Fallback to detected face if quality gate is too strict on specific devices.
+  // Embedding validation + matching threshold still protect against false positives.
+  return detectedFace;
+}
+
+function extractFaceTelemetry(face: any): CameraVisionFaceTelemetry | null {
+  'worklet';
+  if (!face) return null;
+  const toFiniteNumber = (value: unknown): number | null => {
+    'worklet';
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+  };
+  const yaw = toFiniteNumber(face?.yawAngle ?? face?.eulerY ?? face?.headEulerAngleY);
+  const pitch = toFiniteNumber(face?.pitchAngle ?? face?.eulerX ?? face?.headEulerAngleX);
+  const leftEyeOpenProbability = toFiniteNumber(
+    face?.leftEyeOpenProbability ?? face?.leftEyeOpenProb ?? face?.leftEyeProbability,
+  );
+  const rightEyeOpenProbability = toFiniteNumber(
+    face?.rightEyeOpenProbability ?? face?.rightEyeOpenProb ?? face?.rightEyeProbability,
+  );
+
+  let eyeStatus: CameraVisionEyeStatus = 'unknown';
+  if (leftEyeOpenProbability != null && rightEyeOpenProbability != null) {
+    const isLeftOpen = leftEyeOpenProbability >= 0.5;
+    const isRightOpen = rightEyeOpenProbability >= 0.5;
+    if (isLeftOpen && isRightOpen) eyeStatus = 'open';
+    else if (!isLeftOpen && !isRightOpen) eyeStatus = 'closed';
+    else eyeStatus = 'mixed';
+  }
+
+  return {
+    yaw,
+    pitch,
+    leftEyeOpenProbability,
+    rightEyeOpenProbability,
+    eyeStatus,
+  };
+}
+
+function isValidEmbeddingVector(embedding: number[]): boolean {
+  if (!Array.isArray(embedding) || embedding.length < 64) return false;
+  let norm = 0;
+  for (let i = 0; i < embedding.length; i++) {
+    const value = embedding[i];
+    if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+    norm += value * value;
+  }
+  return norm > 0.5;
 }
 
 // Module-level singleton — loads TFLite model once via fetch + NitroModules (no GPU delegate = no .outputs error)
@@ -103,7 +317,10 @@ export function useAttendance() {
   const NETWORK_TIMEOUT_MS = 2500;
   const NETWORK_TOAST_COOLDOWN_MS = 15000;
   const FACEPP_TOUCHLESS_COUNTDOWN_SECONDS = 3;
-  const TOUCHLESS_STABLE_FACE_FRAMES = 1;
+  const CAMERA_VISION_STABLE_FACE_FRAMES = 5;
+  const CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY = 60;
+  const CAMERA_VISION_MANUAL_MIN_READINESS_TO_VERIFY = 30;
+  const CAMERA_VISION_GATE_LOG_COOLDOWN_MS = 2000;
 
   // Camera
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -128,8 +345,10 @@ export function useAttendance() {
   const livenessStatusRef = useRef<'idle' | 'pending' | 'passed'>('idle');
   const livenessScoreRef = useRef<number | null>(null);
   const faceppCountdownStartedRef = useRef(false);
+  const cameraVisionAutoTriggeredRef = useRef(false);
   const touchlessEnabledRef = useRef(false);
   const faceEngineRef = useRef<FaceEngine>('facepp');
+  const lastCameraVisionGateLogRef = useRef(0);
 
   // Shared Values (moved up to avoid use-before-declaration)
   const workletPhase = useSharedValue(0);
@@ -138,7 +357,10 @@ export function useAttendance() {
   const isCapturingHardwareRef = useSharedValue(false);
   const sharedTouchlessEnabled = useSharedValue(false);
   const sharedLivenessEnabled = useSharedValue(true);
+  const sharedFaceEngineIsCameraVision = useSharedValue(false);
   const stableFaceFrames = useSharedValue(0);
+  const lastCameraVisionReadinessSent = useSharedValue(-1);
+  const lastCameraVisionDetectedSent = useSharedValue(false);
 
   // State
   const [faceCountdown, setFaceCountdown] = useState(0);
@@ -158,6 +380,12 @@ export function useAttendance() {
   const [livenessEnabled, setLivenessEnabled] = useState(true);
   const [faceEngine, setFaceEngine] = useState<FaceEngine>('facepp');
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [scanStage, setScanStage] = useState<FaceScanStage>('idle');
+  const [cameraVisionFaceDetected, setCameraVisionFaceDetected] = useState(false);
+  const [cameraVisionReadiness, setCameraVisionReadiness] = useState(0);
+  const [cameraVisionFaceBox, setCameraVisionFaceBox] = useState<UiFaceBox | null>(null);
+  const [cameraVisionFaceTelemetry, setCameraVisionFaceTelemetry] = useState<CameraVisionFaceTelemetry | null>(null);
+  const [successAnimationTick, setSuccessAnimationTick] = useState(0);
 
 
   // Camera Vision TFLite model — singleton ensures it loads only once (StrictMode-safe)
@@ -190,10 +418,20 @@ export function useAttendance() {
   const [snapSound, setSnapSound] = useState<Audio.Sound | null>(null);
 
   // Liveness detection
-  const { detectFaces } = useFaceDetector({
+  const { detectFaces, stopListeners } = useFaceDetector({
+    cameraFacing: frontDevice ? 'front' : 'back',
     classificationMode: 'all',
     performanceMode: 'fast',
+    landmarkMode: 'all',
+    trackingEnabled: true,
+    minFaceSize: 0.08,
   });
+
+  useEffect(() => {
+    return () => {
+      stopListeners();
+    };
+  }, [stopListeners]);
 
   const playSnapSound = async () => {
     try {
@@ -239,7 +477,13 @@ export function useAttendance() {
         countdownRef.current = 0;
         setCountdownActive(false);
         faceppCountdownStartedRef.current = false;
+        cameraVisionAutoTriggeredRef.current = false;
         stableFaceFrames.value = 0;
+        setCameraVisionFaceDetected(false);
+        setCameraVisionReadiness(0);
+        setCameraVisionFaceBox(null);
+        setCameraVisionFaceTelemetry(null);
+        setScanStage('idle');
         modalContextRef.current = 'other';
       } else if (modalContextRef.current === 'face_error') {
         workletPhase.value = 0;
@@ -249,14 +493,29 @@ export function useAttendance() {
         countdownRef.current = 0;
         setCountdownActive(false);
         faceppCountdownStartedRef.current = false;
+        cameraVisionAutoTriggeredRef.current = false;
         stableFaceFrames.value = 0;
+        setCameraVisionFaceDetected(false);
+        setCameraVisionReadiness(0);
+        setCameraVisionFaceBox(null);
+        setCameraVisionFaceTelemetry(null);
         identityStatusRef.current = 'idle';
         livenessStatusRef.current = 'idle';
         livenessScoreRef.current = null;
+        if (
+          touchlessEnabledRef.current &&
+          faceEngineRef.current === 'camera_vision' &&
+          attendanceAction === 'clock_in' &&
+          qrVerified
+        ) {
+          setScanStage('detecting');
+        } else {
+          setScanStage('idle');
+        }
         modalContextRef.current = 'other';
       }
     });
-  }, [scaleAnim, workletPhase, blinkState, stableFaceFrames]);
+  }, [scaleAnim, workletPhase, blinkState, stableFaceFrames, attendanceAction, qrVerified]);
 
   const showModal = useCallback(
     (type: ModalType, title: string, message: string, hint: string, autoCloseMs?: number) => {
@@ -316,7 +575,13 @@ export function useAttendance() {
     lastScanRef.current = { data: null, ts: 0 };
     touchlessTriggeredRef.current = false;
     faceppCountdownStartedRef.current = false;
+    cameraVisionAutoTriggeredRef.current = false;
     stableFaceFrames.value = 0;
+    setCameraVisionFaceDetected(false);
+    setCameraVisionReadiness(0);
+    setCameraVisionFaceBox(null);
+    setCameraVisionFaceTelemetry(null);
+    setScanStage('idle');
     qrProcessingRef.current = false;
     faceProcessingRef.current = false;
     identityStatusRef.current = 'idle';
@@ -350,8 +615,9 @@ export function useAttendance() {
     setFaceEngine(engine);
     sharedTouchlessEnabled.value = touchless;
     sharedLivenessEnabled.value = liveness;
+    sharedFaceEngineIsCameraVision.value = engine === 'camera_vision';
     return { touchless, liveness, engine };
-  }, [sharedTouchlessEnabled, sharedLivenessEnabled]);
+  }, [sharedTouchlessEnabled, sharedLivenessEnabled, sharedFaceEngineIsCameraVision]);
 
   // QR resolve
   const resolveUserFromQr = useCallback(async (qrData: string): Promise<ResolvedUser> => {
@@ -405,6 +671,7 @@ export function useAttendance() {
       setOfflineModeEnabled(false);
       await upsertOfflineUserCacheUser({
         userId: user.userId,
+        empId: user.userId,
         username: user.username,
         name: user.name ?? null,
         qrCode: qrData,
@@ -487,6 +754,12 @@ export function useAttendance() {
 
   // Worklet → JS callbacks for frame-based embedding capture
   const onEmbeddingCaptured = Worklets.createRunOnJS((embedding: number[]) => {
+    if (!isValidEmbeddingVector(embedding)) {
+      embeddingRejectRef.current?.(new Error('Captured face data is invalid. Please center your face and try again.'));
+      embeddingResolveRef.current = null;
+      embeddingRejectRef.current = null;
+      return;
+    }
     embeddingResolveRef.current?.(embedding);
     embeddingResolveRef.current = null;
     embeddingRejectRef.current = null;
@@ -516,6 +789,9 @@ export function useAttendance() {
 
   // Sync comparator — receives the already-captured live embedding from the frame processor
   const verifyFaceLocal = useCallback((liveEmbedding: number[]): { ok: boolean; verified: boolean; message?: string; hint?: string } => {
+    if (!isValidEmbeddingVector(liveEmbedding)) {
+      return { ok: false, verified: false, message: 'Invalid live face capture.', hint: 'Center your face and try again in better lighting.' };
+    }
     const storedEmbeddingStr = selectedUser?.face_embedding;
     if (!storedEmbeddingStr) {
       return { ok: false, verified: false, message: 'No face profile registered for this employee.', hint: 'Ask the employee to register their face in the HRIS mobile app first.' };
@@ -523,12 +799,32 @@ export function useAttendance() {
     let storedEmbedding: number[];
     try { storedEmbedding = JSON.parse(storedEmbeddingStr); }
     catch { return { ok: false, verified: false, message: 'Face profile data is corrupted.', hint: 'Ask the employee to re-register their face in the HRIS mobile app.' }; }
+    if (!isValidEmbeddingVector(storedEmbedding)) {
+      return { ok: false, verified: false, message: 'Stored face profile is invalid.', hint: 'Ask the employee to re-register their face in the HRIS mobile app.' };
+    }
+    if (liveEmbedding.length !== storedEmbedding.length) {
+      return { ok: false, verified: false, message: 'Face profile format mismatch.', hint: 'Please re-register face profile to match current model.' };
+    }
 
     const similarity = compareEmbeddings(liveEmbedding, storedEmbedding);
+    if (!Number.isFinite(similarity)) {
+      return { ok: false, verified: false, message: 'Face verification failed due to invalid similarity score.', hint: 'Please try again.' };
+    }
     console.log(`[CameraVision] Cosine similarity: ${(similarity * 100).toFixed(2)}%`);
     if (isMatch(similarity)) return { ok: true, verified: true };
     return { ok: false, verified: false, message: `Face does not match. Similarity: ${(similarity * 100).toFixed(0)}%`, hint: 'Ensure good lighting and face the camera directly.' };
   }, [selectedUser]);
+
+  const logCameraVisionGateSkip = useCallback((reason: string, details?: Record<string, unknown>) => {
+    const now = Date.now();
+    if (now - lastCameraVisionGateLogRef.current < CAMERA_VISION_GATE_LOG_COOLDOWN_MS) return;
+    lastCameraVisionGateLogRef.current = now;
+    if (details) {
+      console.log(`[CameraVision] Verification gate blocked: ${reason}`, details);
+      return;
+    }
+    console.log(`[CameraVision] Verification gate blocked: ${reason}`);
+  }, []);
 
   const recordAttendance = useCallback(async (action: 'clock_in' | 'clock_out', location: { address?: string; latitude?: number; longitude?: number } = {}) => {
     const userId = await AsyncStorage.getItem('userId');
@@ -568,6 +864,7 @@ export function useAttendance() {
 
   const executeAttendanceRecording = useCallback(async () => {
     setIsVerifying(true);
+    setScanStage('recording');
     faceProcessingRef.current = true;
     try {
       const action = attendanceAction;
@@ -637,6 +934,9 @@ export function useAttendance() {
         await clearStoredSession(selectedUser!.userId);
       }
       
+      setScanStage('success');
+      setSuccessAnimationTick((prev) => prev + 1);
+      await new Promise((resolve) => setTimeout(resolve, 500));
       await resetAttendanceFlow();
       workletPhase.value = 0; // Reset worklet phase
       showModal('success',
@@ -646,6 +946,7 @@ export function useAttendance() {
     } catch (e: any) {
       faceProcessingRef.current = false;
       livenessTriggeredRef.current = false;
+      setScanStage('idle');
       const showOfflineError = offlineModeEnabled || isLikelyConnectivityError(e);
       showModal('error', showOfflineError ? 'Offline Mode Error' : 'Connection Error', e?.message || 'Please try again.', showOfflineError ? 'Connect once to refresh employee QR cache.' : 'Check your internet connection', 2000);
     } finally {
@@ -657,6 +958,7 @@ export function useAttendance() {
   const handleAttendance = useCallback(async () => {
     if (faceProcessingRef.current || isVerifying) return;
     if (!qrVerified || !selectedUser) {
+      setScanStage('idle');
       showModal('warning', 'Scan QR Code First', 'Please scan your personal QR code before continuing.', 'The user must scan a QR code.');
       return;
     }
@@ -665,14 +967,43 @@ export function useAttendance() {
     if (attendanceAction === 'clock_out' && touchlessEnabled) {
       faceProcessingRef.current = true;
       setIsVerifying(true);
+      setScanStage('recording');
       await executeAttendanceRecording();
       return;
     }
 
-    if (!hasPermission) { showModal('warning', 'Camera Required', 'Please allow camera access to verify your identity.', ''); return; }
+    if (!hasPermission) {
+      setScanStage('idle');
+      showModal('warning', 'Camera Required', 'Please allow camera access to verify your identity.', '');
+      return;
+    }
+
+    if (faceEngine === 'camera_vision' && !offlineModeEnabled) {
+      const minReadiness = touchlessEnabled
+        ? CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY
+        : CAMERA_VISION_MANUAL_MIN_READINESS_TO_VERIFY;
+      if (!cameraVisionFaceDetected || cameraVisionReadiness < minReadiness) {
+        setScanStage('detecting');
+        logCameraVisionGateSkip('Face not ready for verification', {
+          detected: cameraVisionFaceDetected,
+          readiness: cameraVisionReadiness,
+          required: minReadiness,
+          mode: touchlessEnabled ? 'touchless' : 'manual',
+        });
+        showModal(
+          'warning',
+          'Face Not Ready',
+          'No stable face detected yet. Please center your face and hold still.',
+          'Ensure your full face is visible with good lighting.',
+          1500,
+        );
+        return;
+      }
+    }
 
     faceProcessingRef.current = true;
     identityStatusRef.current = 'pending';
+    setScanStage('capturing');
     console.log('[Attendance] Starting Concurrent Identity & Liveness Verification', { action: attendanceAction, userId: selectedUser.userId });
 
     // Visual + audio snap
@@ -688,10 +1019,26 @@ export function useAttendance() {
     let result: any;
     try {
       if (faceEngine === 'camera_vision' && !offlineModeEnabled) {
-        // Camera Vision: capture embedding directly from the live frame (no photo file needed)
-        const liveEmbedding = await captureEmbeddingFromFrame();
-        setIsCapturingHardware(false);
-        result = verifyFaceLocal(liveEmbedding);
+        // Camera Vision primary path: local embedding + cosine compare.
+        // Fallback to photo verification if frame-based embedding fails on specific devices.
+        try {
+          const liveEmbedding = await captureEmbeddingFromFrame();
+          setIsCapturingHardware(false);
+          result = verifyFaceLocal(liveEmbedding);
+          if (result?.verified === false) {
+            if (!cameraRef.current) throw new Error('Camera not ready');
+            const photo1 = await cameraRef.current.takePhoto({ flash: 'off', enableAutoRedEyeReduction: true });
+            if (!photo1?.path) throw new Error('No image captured');
+            result = await verifyFace(`file://${photo1.path}`);
+          }
+        } catch (localErr: any) {
+          console.log('[CameraVision] Local embedding failed, using photo verification fallback', localErr?.message || localErr);
+          if (!cameraRef.current) throw localErr;
+          const photo1 = await cameraRef.current.takePhoto({ flash: 'off', enableAutoRedEyeReduction: true });
+          setIsCapturingHardware(false);
+          if (!photo1?.path) throw new Error('No image captured');
+          result = await verifyFace(`file://${photo1.path}`);
+        }
       } else {
         // Face++ or offline: take a photo then verify
         if (!cameraRef.current) throw new Error('Camera not ready');
@@ -708,6 +1055,7 @@ export function useAttendance() {
       faceProcessingRef.current = false; // reset so touchless can auto-retry
       identityStatusRef.current = 'failed';
       modalContextRef.current = 'face_error';
+      setScanStage('idle');
       showModal('error', 'Camera Error', e?.message || 'Failed to capture photo', '', 2000);
       return;
     }
@@ -715,9 +1063,11 @@ export function useAttendance() {
     if (livenessEnabled) {
       livenessStatusRef.current = 'pending';
       workletPhase.value = 2;
+      setScanStage('verifying');
       setLivenessMessage('Verifying Identity...\nPlease Blink or Smile');
     } else {
       setIsVerifying(true);
+      setScanStage('verifying');
     }
 
     try {
@@ -736,6 +1086,7 @@ export function useAttendance() {
         setIsVerifying(false);
         faceProcessingRef.current = false; // reset so touchless can auto-retry
         modalContextRef.current = 'face_error';
+        setScanStage('idle');
         showModal('error', 'Verification Failed', result?.message || 'Face verification failed.', result?.hint || 'Please try again.', 2000);
       } else {
         identityStatusRef.current = 'failed';
@@ -743,6 +1094,7 @@ export function useAttendance() {
         setIsVerifying(false);
         faceProcessingRef.current = false; // reset so touchless can auto-retry
         modalContextRef.current = 'face_error';
+        setScanStage('idle');
         showModal('error', 'Verification Failed', 'Please try again.', '', 2000);
       }
     } catch (e: any) {
@@ -751,23 +1103,59 @@ export function useAttendance() {
       setIsVerifying(false);
       faceProcessingRef.current = false; // reset so touchless can auto-retry
       modalContextRef.current = 'face_error';
+      setScanStage('idle');
       const showOfflineError = offlineModeEnabled || isLikelyConnectivityError(e);
       showModal('error', showOfflineError ? 'Offline Mode Error' : 'Connection Error', e?.message || 'Please try again.', showOfflineError ? 'Connect once to refresh employee QR cache.' : 'Check your internet connection', 2000);
     }
-  }, [attendanceAction, touchlessEnabled, hasPermission, isLikelyConnectivityError, livenessEnabled, offlineModeEnabled, qrVerified, selectedUser, showModal, workletPhase, executeAttendanceRecording, verifyFace, verifyFaceLocal, faceEngine, flashAnim, captureEmbeddingFromFrame]);
+  }, [attendanceAction, touchlessEnabled, hasPermission, isLikelyConnectivityError, livenessEnabled, offlineModeEnabled, qrVerified, selectedUser, showModal, workletPhase, executeAttendanceRecording, verifyFace, verifyFaceLocal, faceEngine, flashAnim, captureEmbeddingFromFrame, cameraVisionFaceDetected, cameraVisionReadiness, logCameraVisionGateSkip]);
 
   const onFaceDetectedForIdentity = Worklets.createRunOnJS(() => {
     if (!touchlessEnabledRef.current || modalVisibleRef.current || !qrVerified || attendanceAction !== 'clock_in' || countdownRef.current > 0 || countdownActive || faceProcessingRef.current || isVerifying) return;
     if (faceEngineRef.current === 'facepp') return;
-
-    console.log('[Face] Stable face detected! Triggering Identity Capture...');
-    handleAttendance();
+    if (faceEngineRef.current === 'camera_vision') {
+      setScanStage('detecting');
+      return;
+    }
   });
 
   const onTouchlessFaceLost = Worklets.createRunOnJS(() => {
     if (!touchlessEnabledRef.current || faceProcessingRef.current || isVerifying) return;
     if (faceEngineRef.current === 'facepp' && faceppCountdownStartedRef.current) return;
+    if (faceEngineRef.current === 'camera_vision') {
+      cameraVisionAutoTriggeredRef.current = false;
+    }
     setLivenessMessage('Face the camera directly');
+  });
+
+  const onCameraVisionDetectionProgress = Worklets.createRunOnJS((
+    detected: boolean,
+    readinessPercent: number,
+    box?: NormalizedFaceBox | null,
+    telemetry?: CameraVisionFaceTelemetry | null,
+  ) => {
+    setCameraVisionFaceDetected(detected);
+    setCameraVisionReadiness(readinessPercent);
+    setCameraVisionFaceTelemetry(detected ? (telemetry ?? null) : null);
+    if (!detected) {
+      setCameraVisionFaceBox(null);
+    } else if (!box) {
+      // Fallback for detectors that report face presence without usable bounds.
+      // Provide a normalized fallback (0..1) so the UI can map to full-screen pixels.
+      setCameraVisionFaceBox({ left: 0.42, top: 0.08, width: 0.36, height: 0.5 });
+    } else {
+      // Store normalized coordinates (0..1). UI will map to screen pixels so overlay can be full-screen.
+      setCameraVisionFaceBox({ left: box.x, top: box.y, width: box.width, height: box.height });
+    }
+    if (
+      faceEngineRef.current === 'camera_vision' &&
+      qrVerified &&
+      attendanceAction === 'clock_in' &&
+      !isVerifying &&
+      !faceProcessingRef.current &&
+      !modalVisibleRef.current
+    ) {
+      setScanStage('detecting');
+    }
   });
 
   const onActiveLivenessPassed = Worklets.createRunOnJS((score: number) => {
@@ -811,18 +1199,43 @@ export function useAttendance() {
       runAsync(frame, () => {
         'worklet';
         try {
+          // Detect faces in the current frame to ensure we only process actual human faces
+          const faces = detectFaces(frame);
+          const detectedFace = selectBestDetectedFace(faces, frame.width, frame.height);
+          const recognitionFace = selectBestRecognitionFace(faces, frame.width, frame.height);
+          const captureFace = recognitionFace ?? detectedFace;
+          if (!captureFace) {
+            // No face found in this frame; do not reset flag, so we try again next frame
+            return;
+          }
+
+          // Face found! Clear the flag and extract the precise face crop
           captureEmbeddingFlag.value = false;
+
           try {
             const actualModel = boxedTfliteModel.unbox();
             const buffer = frame.toArrayBuffer();
-            const tensor = resizeFrameToTensor(buffer, frame.width, frame.height);
+            // Pass the faceBox for precise cropping during tensor resizing
+            const tensor = resizeFrameToTensor(buffer, frame.width, frame.height, captureFace.box);
             const output = actualModel.runSync([tensor]);
             const raw = new Float32Array(output[0]);
+            if (raw.length < 64) {
+              throw new Error('Embedding output is too small');
+            }
             let norm = 0;
             for (let i = 0; i < raw.length; i++) norm += raw[i] * raw[i];
             norm = Math.sqrt(norm);
+            if (!Number.isFinite(norm) || norm <= 0) {
+              throw new Error('Embedding norm is invalid');
+            }
             const normalized: number[] = [];
-            for (let i = 0; i < raw.length; i++) normalized.push(norm > 0 ? raw[i] / norm : raw[i]);
+            for (let i = 0; i < raw.length; i++) {
+              const value = raw[i] / norm;
+              if (!Number.isFinite(value)) {
+                throw new Error('Embedding contains invalid values');
+              }
+              normalized.push(value);
+            }
             onEmbeddingCaptured(normalized);
           } catch (embErr: any) {
             onEmbeddingFailed(embErr?.message || 'Frame embedding failed');
@@ -838,7 +1251,7 @@ export function useAttendance() {
     
     // Auto-capture logic move to worklet thread for higher precision
     if (workletPhase.value === 0) {
-      if (!sharedTouchlessEnabled.value) return;
+      if (!sharedTouchlessEnabled.value && !sharedFaceEngineIsCameraVision.value) return;
     }
 
     isProcessingFace.value = true;
@@ -846,15 +1259,56 @@ export function useAttendance() {
       'worklet';
       try {
         const faces = detectFaces(frame);
-        if (faces.length > 0) {
-          const face = faces[0];
+        const detectedFace = selectBestDetectedFace(faces, frame.width, frame.height);
+        const recognitionFace = selectBestRecognitionFace(faces, frame.width, frame.height);
+        const trackedFace = detectedFace ?? recognitionFace;
 
-          if (workletPhase.value === 0) {
-            stableFaceFrames.value = Math.min(stableFaceFrames.value + 1, TOUCHLESS_STABLE_FACE_FRAMES);
-            if (stableFaceFrames.value >= TOUCHLESS_STABLE_FACE_FRAMES) {
+        if (workletPhase.value === 0) {
+          if (detectedFace) {
+            stableFaceFrames.value = Math.min(stableFaceFrames.value + 1, CAMERA_VISION_STABLE_FACE_FRAMES);
+            if (sharedFaceEngineIsCameraVision.value) {
+              const readinessPercent = Math.min(
+                100,
+                Math.round((stableFaceFrames.value / CAMERA_VISION_STABLE_FACE_FRAMES) * 100),
+              );
+              const telemetry = extractFaceTelemetry(trackedFace?.sourceFace);
+              if (
+                readinessPercent !== lastCameraVisionReadinessSent.value ||
+                lastCameraVisionDetectedSent.value !== true
+              ) {
+                lastCameraVisionReadinessSent.value = readinessPercent;
+                lastCameraVisionDetectedSent.value = true;
+                onCameraVisionDetectionProgress(true, readinessPercent, trackedFace?.box ?? null, telemetry);
+              } else {
+                onCameraVisionDetectionProgress(true, readinessPercent, trackedFace?.box ?? null, telemetry);
+              }
+            }
+            if (stableFaceFrames.value >= CAMERA_VISION_STABLE_FACE_FRAMES) {
               onFaceDetectedForIdentity();
             }
-          } else if (workletPhase.value === 2) {
+          } else {
+            if (stableFaceFrames.value !== 0) {
+              stableFaceFrames.value = Math.max(0, stableFaceFrames.value - 1);
+            }
+            if (
+              sharedFaceEngineIsCameraVision.value &&
+              (lastCameraVisionReadinessSent.value !== 0 || lastCameraVisionDetectedSent.value !== false || stableFaceFrames.value > 0)
+            ) {
+              const readinessPercent = Math.min(
+                100,
+                Math.round((stableFaceFrames.value / CAMERA_VISION_STABLE_FACE_FRAMES) * 100),
+              );
+              lastCameraVisionReadinessSent.value = readinessPercent;
+              lastCameraVisionDetectedSent.value = false;
+              onCameraVisionDetectionProgress(false, readinessPercent, null, null);
+            }
+            onTouchlessFaceLost();
+          }
+        }
+
+        if (faces.length > 0) {
+          const face = faces[0];
+          if (workletPhase.value === 2) {
             // PHASE 2: Active Liveness (Blink or Smile)
             const leftOpenProb = face.leftEyeOpenProbability ?? 1;
             const rightOpenProb = face.rightEyeOpenProbability ?? 1;
@@ -902,12 +1356,6 @@ export function useAttendance() {
             }
           }
         } else {
-          if (workletPhase.value === 0) {
-            if (stableFaceFrames.value !== 0) {
-              stableFaceFrames.value = 0;
-            }
-            onTouchlessFaceLost();
-          }
           // Reset if face is lost
           if (workletPhase.value === 2 && blinkState.value !== 0 && blinkState.value !== 3) {
             blinkState.value = 0;
@@ -918,7 +1366,7 @@ export function useAttendance() {
         isProcessingFace.value = false;
       }
     });
-  }, [detectFaces, sharedTouchlessEnabled, onFaceDetectedForIdentity, onTouchlessFaceLost, onActiveLivenessPassed, updateLivenessMessage, isCapturingHardwareRef, workletPhase, blinkState, isProcessingFace, stableFaceFrames, tfliteModel, captureEmbeddingFlag, onEmbeddingCaptured, onEmbeddingFailed]);
+  }, [detectFaces, sharedTouchlessEnabled, sharedFaceEngineIsCameraVision, onFaceDetectedForIdentity, onTouchlessFaceLost, onCameraVisionDetectionProgress, onActiveLivenessPassed, updateLivenessMessage, isCapturingHardwareRef, workletPhase, blinkState, isProcessingFace, stableFaceFrames, lastCameraVisionReadinessSent, lastCameraVisionDetectedSent, tfliteModel, captureEmbeddingFlag, onEmbeddingCaptured, onEmbeddingFailed]);
 
   // QR scanner
   const handleBarcodeScanned = async (event: any) => {
@@ -986,6 +1434,11 @@ export function useAttendance() {
             faceppCountdownStartedRef.current = false;
             stableFaceFrames.value = 0;
             setCountdownActive(false);
+            if (currentSettings.touchless && currentSettings.engine === 'camera_vision') {
+              setScanStage('detecting');
+            } else {
+              setScanStage('idle');
+            }
           }
         }, 600);
 
@@ -1045,6 +1498,11 @@ export function useAttendance() {
         faceppCountdownStartedRef.current = false;
         stableFaceFrames.value = 0;
         setCountdownActive(false);
+        if (currentSettings.touchless && currentSettings.engine === 'camera_vision') {
+          setScanStage('detecting');
+        } else {
+          setScanStage('idle');
+        }
       }, 800);
     } catch (e: any) {
       console.log('[QR] Validation error', e?.message || e);
@@ -1101,6 +1559,7 @@ export function useAttendance() {
     if (faceCountdown > 0 || isVerifying || faceProcessingRef.current) return;
     setCountdownActive(false);
     faceppCountdownStartedRef.current = false;
+    setScanStage('capturing');
     handleAttendance();
   }, [attendanceAction, countdownActive, faceCountdown, faceEngine, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
 
@@ -1113,6 +1572,7 @@ export function useAttendance() {
     setFaceCountdown(FACEPP_TOUCHLESS_COUNTDOWN_SECONDS);
     countdownRef.current = FACEPP_TOUCHLESS_COUNTDOWN_SECONDS;
     setCountdownActive(true);
+    setScanStage('countdown');
     setLivenessMessage(`Capturing in ${FACEPP_TOUCHLESS_COUNTDOWN_SECONDS}...`);
   }, [attendanceAction, countdownActive, faceCountdown, faceEngine, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
 
@@ -1120,11 +1580,38 @@ export function useAttendance() {
     if (!touchlessEnabled || !qrVerified || attendanceAction !== 'clock_in') return;
     if (faceEngine !== 'camera_vision') return;
     if (isVerifying || faceProcessingRef.current || showResultModal || modalVisibleRef.current) return;
-    const timer = setTimeout(() => {
+
+    setScanStage('detecting');
+    const autoReadinessThreshold = CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY;
+
+    if (
+      cameraVisionFaceDetected &&
+      cameraVisionReadiness >= autoReadinessThreshold &&
+      !cameraVisionAutoTriggeredRef.current
+    ) {
+      cameraVisionAutoTriggeredRef.current = true;
+      setScanStage('capturing');
       handleAttendance();
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [attendanceAction, faceEngine, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+      return;
+    }
+
+    if (
+      !cameraVisionFaceDetected ||
+      cameraVisionReadiness < Math.max(12, autoReadinessThreshold - 15)
+    ) {
+      cameraVisionAutoTriggeredRef.current = false;
+    }
+  }, [
+    attendanceAction,
+    cameraVisionFaceDetected,
+    cameraVisionReadiness,
+    faceEngine,
+    handleAttendance,
+    isVerifying,
+    qrVerified,
+    showResultModal,
+    touchlessEnabled,
+  ]);
 
   useEffect(() => {
     if (faceEngine === 'facepp') return;
@@ -1138,11 +1625,26 @@ export function useAttendance() {
 
   useEffect(() => {
     touchlessEnabledRef.current = touchlessEnabled;
+    sharedTouchlessEnabled.value = touchlessEnabled;
   }, [touchlessEnabled]);
 
   useEffect(() => {
     faceEngineRef.current = faceEngine;
+    sharedFaceEngineIsCameraVision.value = faceEngine === 'camera_vision';
+    lastCameraVisionReadinessSent.value = -1;
+    lastCameraVisionDetectedSent.value = false;
   }, [faceEngine]);
+
+  useEffect(() => {
+    if (!qrVerified) {
+      setScanStage('idle');
+      setCameraVisionFaceDetected(false);
+      setCameraVisionReadiness(0);
+      setCameraVisionFaceBox(null);
+      setCameraVisionFaceTelemetry(null);
+      cameraVisionAutoTriggeredRef.current = false;
+    }
+  }, [qrVerified]);
 
   useEffect(() => {
     applyScannerSettings().catch(() => { });
@@ -1195,6 +1697,7 @@ export function useAttendance() {
     isLoading, isVerifying, isQrLoading, isClockingOut, isCapturingHardware: uiCapturingHardware,
     qrVerified, qrSuccessLocal, selectedUser, clockInTime: displayClockInTime, faceCountdown,
     touchlessEnabled, offlineModeEnabled, livenessEnabled, faceEngine, pendingSyncCount,
+    scanStage, cameraVisionFaceDetected, cameraVisionReadiness, cameraVisionFaceBox, cameraVisionFaceTelemetry, successAnimationTick,
     showResultModal, modalType, modalTitle, modalMessage, modalHint, livenessMessage,
     closeModal, handleAttendance,
   };
