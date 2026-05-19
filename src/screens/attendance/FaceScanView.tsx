@@ -13,8 +13,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Camera, CameraProps } from 'react-native-vision-camera';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import AnimatedReanimated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { styles } from './styles';
 import type { ResolvedUser } from './types';
+import type { FaceEngine } from '../settings/features/FaceRecogEngineFeature';
+import type { CameraVisionFaceTelemetry, FaceScanStage } from './types';
 
 type Props = {
   device: CameraProps['device'];
@@ -30,6 +33,13 @@ type Props = {
   touchlessEnabled: boolean;
   offlineModeEnabled: boolean;
   livenessEnabled: boolean;
+  faceEngine: FaceEngine;
+  scanStage: FaceScanStage;
+  cameraVisionFaceDetected: boolean;
+  cameraVisionReadiness: number;
+  cameraVisionFaceBox: { left: number; top: number; width: number; height: number } | null;
+  cameraVisionFaceTelemetry: CameraVisionFaceTelemetry | null;
+  successAnimationTick: number;
   pendingSyncCount: number;
   faceCountdown: number;
   clockInTime: string;
@@ -55,6 +65,13 @@ export default function FaceScanView({
   touchlessEnabled,
   offlineModeEnabled,
   livenessEnabled,
+  faceEngine,
+  scanStage,
+  cameraVisionFaceDetected,
+  cameraVisionReadiness,
+  cameraVisionFaceBox,
+  cameraVisionFaceTelemetry,
+  successAnimationTick,
   pendingSyncCount,
   faceCountdown,
   clockInTime,
@@ -85,8 +102,18 @@ export default function FaceScanView({
     };
   }, []);
 
+  const successScale = useState(() => new Animated.Value(0.75))[0];
+  useEffect(() => {
+    if (scanStage !== 'success') return;
+    successScale.setValue(0.75);
+    Animated.sequence([
+      Animated.spring(successScale, { toValue: 1.15, friction: 5, tension: 120, useNativeDriver: true }),
+      Animated.spring(successScale, { toValue: 1, friction: 6, tension: 100, useNativeDriver: true }),
+    ]).start();
+  }, [scanStage, successAnimationTick, successScale]);
+
   // Determine if we need to apply a manual rotation fix for Android + FrameProcessor
-  const requiresAndroidRotationFix = Platform.OS === 'android' && livenessEnabled;
+  const requiresAndroidRotationFix = Platform.OS === 'android' && (livenessEnabled || faceEngine === 'camera_vision');
   
   // Calculate scale to prevent squishing when applying CSS rotation to a non-square container
   const cameraContainerWidth = isLandscape ? width * 0.6 : width;
@@ -107,6 +134,116 @@ export default function FaceScanView({
     }
   }
 
+  const isCameraVisionMode = faceEngine === 'camera_vision';
+  const detectionPercent = Math.max(0, Math.min(100, Math.round(cameraVisionReadiness)));
+
+  // Fallback normalized box (0..1) and pixel fallback derived from window size
+  const fallbackFaceBoxNormalized = { left: 0.42, top: 0.08, width: 0.36, height: 0.5 };
+  const fallbackFaceBoxPx = {
+    left: Math.round(width * fallbackFaceBoxNormalized.left),
+    top: Math.round(height * fallbackFaceBoxNormalized.top),
+    width: Math.round(width * fallbackFaceBoxNormalized.width),
+    height: Math.round(height * fallbackFaceBoxNormalized.height),
+  };
+
+  const animatedFaceBoxLeft = useSharedValue(fallbackFaceBoxPx.left);
+  const animatedFaceBoxTop = useSharedValue(fallbackFaceBoxPx.top);
+  const animatedFaceBoxWidth = useSharedValue(fallbackFaceBoxPx.width);
+  const animatedFaceBoxHeight = useSharedValue(fallbackFaceBoxPx.height);
+
+  useEffect(() => {
+    const animation = { duration: 100 };
+    if (!cameraVisionFaceBox) {
+      animatedFaceBoxLeft.value = withTiming(fallbackFaceBoxPx.left, animation);
+      animatedFaceBoxTop.value = withTiming(fallbackFaceBoxPx.top, animation);
+      animatedFaceBoxWidth.value = withTiming(fallbackFaceBoxPx.width, animation);
+      animatedFaceBoxHeight.value = withTiming(fallbackFaceBoxPx.height, animation);
+      return;
+    }
+
+    let nextPx: { left: number; top: number; width: number; height: number };
+    // If cameraVisionFaceBox is normalized (values <= 1), map to screen pixels
+    if (cameraVisionFaceBox.width <= 1 && cameraVisionFaceBox.height <= 1) {
+      nextPx = {
+        left: Math.round(cameraVisionFaceBox.left * width),
+        top: Math.round(cameraVisionFaceBox.top * height),
+        width: Math.round(cameraVisionFaceBox.width * width),
+        height: Math.round(cameraVisionFaceBox.height * height),
+      };
+    } else {
+      // Already in pixel coordinates
+      nextPx = {
+        left: cameraVisionFaceBox.left,
+        top: cameraVisionFaceBox.top,
+        width: cameraVisionFaceBox.width,
+        height: cameraVisionFaceBox.height,
+      };
+    }
+
+    animatedFaceBoxLeft.value = withTiming(nextPx.left, animation);
+    animatedFaceBoxTop.value = withTiming(nextPx.top, animation);
+    animatedFaceBoxWidth.value = withTiming(nextPx.width, animation);
+    animatedFaceBoxHeight.value = withTiming(nextPx.height, animation);
+  }, [cameraVisionFaceBox, animatedFaceBoxLeft, animatedFaceBoxTop, animatedFaceBoxWidth, animatedFaceBoxHeight, width, height]);
+
+  const animatedFaceBoxStyle = useAnimatedStyle(() => ({
+    left: animatedFaceBoxLeft.value,
+    top: animatedFaceBoxTop.value,
+    width: animatedFaceBoxWidth.value,
+    height: animatedFaceBoxHeight.value,
+  }));
+
+  const eyeStatusLabel = (() => {
+    switch (cameraVisionFaceTelemetry?.eyeStatus) {
+      case 'open':
+        return 'Open';
+      case 'closed':
+        return 'Closed';
+      case 'mixed':
+        return 'Blinking';
+      default:
+        return 'Unknown';
+    }
+  })();
+  const formatAngle = (value: number | null | undefined) =>
+    typeof value === 'number' && Number.isFinite(value) ? `${value >= 0 ? '+' : ''}${Math.round(value)}°` : '--';
+  const yawLabel = formatAngle(cameraVisionFaceTelemetry?.yaw);
+  const pitchLabel = formatAngle(cameraVisionFaceTelemetry?.pitch);
+
+  const showProcessingSpinner =
+    isCapturingHardware ||
+    isVerifying ||
+    scanStage === 'capturing' ||
+    scanStage === 'verifying' ||
+    scanStage === 'recording';
+  const showDetectionOverlay =
+    isCameraVisionMode &&
+    cameraVisionFaceDetected &&
+    !!cameraVisionFaceBox &&
+    !showProcessingSpinner &&
+    scanStage !== 'success';
+  const detectionLabel = cameraVisionFaceDetected ? `TRACKING ${detectionPercent}%` : 'SEARCHING...';
+
+  const instructionText = (() => {
+    if (scanStage === 'success') return 'FACE VERIFIED';
+    if (showProcessingSpinner) return isClockingOut ? 'PROCESSING LOGOUT...' : 'VERIFYING IDENTITY...';
+    if (isCameraVisionMode && scanStage === 'detecting') {
+      return cameraVisionFaceDetected ? `FACE READY ${detectionPercent}%` : 'SEARCHING FOR FACE...';
+    }
+    if (faceCountdown > 0 && touchlessEnabled) return `GET READY... ${faceCountdown}`;
+    return 'LOOK AT THE CAMERA';
+  })();
+
+  const hintText = (() => {
+    if (scanStage === 'success') return 'Success';
+    if (showProcessingSpinner) return 'Please wait...';
+    if (isCameraVisionMode && scanStage === 'detecting') {
+      return cameraVisionFaceDetected ? 'Hold steady for automatic capture' : 'Center your face in the frame';
+    }
+    if (faceCountdown > 0) return 'Position your face';
+    return livenessMessage;
+  })();
+
   // Portrait mode (phones) — full-screen camera with compact profile bar
   if (!isLandscape) {
     return (
@@ -117,9 +254,9 @@ export default function FaceScanView({
           device={device}
           isActive={true}
           photo={true}
-          pixelFormat="rgb"
           frameProcessor={frameProcessor}
           androidPreviewViewType="texture-view"
+          outputOrientation="device"
           resizeMode="cover"
         />
         <Animated.View style={[styles.snapFlash, { opacity: flashAnim }]} pointerEvents="none" />
@@ -198,7 +335,11 @@ export default function FaceScanView({
                     ]}
                   />
                 )}
-                {isCapturingHardware || isVerifying ? (
+                {scanStage === 'success' ? (
+                  <Animated.View style={[styles.successIconWrap, { transform: [{ scale: successScale }] }]}>
+                    <MaterialCommunityIcons name="check-circle" size={118} color="#4ade80" />
+                  </Animated.View>
+                ) : showProcessingSpinner ? (
                   <ActivityIndicator size={80} color="#F27121" style={styles.faceIconBackground} />
                 ) : (faceCountdown > 0 && touchlessEnabled) ? (
                   <Text style={styles.countdownText}>{faceCountdown}</Text>
@@ -206,21 +347,40 @@ export default function FaceScanView({
                   <MaterialCommunityIcons name="face-recognition" size={120} color="rgba(255,255,255,0.2)" style={styles.faceIconBackground} />
                 )}
               </View>
+              {showDetectionOverlay && (
+                <View style={styles.fullScreenDetectionOverlay} pointerEvents="none">
+                  <AnimatedReanimated.View
+                    style={[
+                      styles.detectionFaceBox,
+                      cameraVisionFaceDetected && styles.detectionFaceBoxActive,
+                      animatedFaceBoxStyle,
+                    ]}
+                  />
+                  <View style={[styles.detectionBadge, { position: 'absolute', top: 12, left: 12 }]}>
+                    <Text style={styles.detectionBadgeText}>{detectionLabel}</Text>
+                  </View>
+                  <View style={[styles.detectionStatusCard, { position: 'absolute', top: 12, right: 12 }]}>
+                    <Text style={styles.detectionStatusText}>Yaw: {yawLabel}</Text>
+                    <Text style={styles.detectionStatusText}>Pitch: {pitchLabel}</Text>
+                    <Text style={styles.detectionStatusText}>Eyes: {eyeStatusLabel}</Text>
+                  </View>
+                </View>
+              )}
               <Text style={styles.scanInstructionText}>
-                {isCapturingHardware ? 'CAPTURING PHOTO...' : isVerifying ? 'VERIFYING IDENTITY...' : (faceCountdown > 0 && touchlessEnabled) ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
+                {instructionText}
               </Text>
               <Text style={styles.faceHintText}>
-                {isCapturingHardware ? 'Hold still for a moment' : isVerifying ? 'Please wait...' : faceCountdown > 0 ? 'Position your face' : livenessMessage}
+                {hintText}
               </Text>
             </View>
           </View>
 
           <View style={styles.portraitFooter}>
-            {isVerifying ? (
+            {showProcessingSpinner ? (
               <View style={styles.verifyingPill}>
                 <ActivityIndicator size="small" color="#F27121" />
                 <Text style={styles.verifyingPillText}>
-                  {isClockingOut ? 'Processing Logout...' : 'Verifying Identity...'}
+                  {scanStage === 'capturing' ? 'Capturing...' : isClockingOut ? 'Processing Logout...' : 'Verifying Identity...'}
                 </Text>
               </View>
             ) : (
@@ -286,11 +446,11 @@ export default function FaceScanView({
           </View>
 
           <View style={styles.leftPanelFooter}>
-            {isVerifying ? (
+            {showProcessingSpinner ? (
               <View style={styles.verifyingPillLeft}>
                 <ActivityIndicator size="small" color={accentColor} />
                 <Text style={[styles.verifyingPillTextLeft, { color: accentColor }]}>
-                  {isClockingOut ? 'Processing Logout...' : 'Verifying Identity...'}
+                  {scanStage === 'capturing' ? 'Capturing...' : isClockingOut ? 'Processing Logout...' : 'Verifying Identity...'}
                 </Text>
               </View>
             ) : (
@@ -317,9 +477,9 @@ export default function FaceScanView({
           device={device}
           isActive={true}
           photo={true}
-          pixelFormat="rgb"
           frameProcessor={frameProcessor}
           androidPreviewViewType="texture-view"
+          outputOrientation="device"
           resizeMode="cover"
         />
         <Animated.View style={[styles.snapFlash, { opacity: flashAnim }]} pointerEvents="none" />
@@ -360,7 +520,11 @@ export default function FaceScanView({
                   ]}
                 />
               )}
-              {isCapturingHardware || isVerifying ? (
+              {scanStage === 'success' ? (
+                <Animated.View style={[styles.successIconWrap, { transform: [{ scale: successScale }] }]}>
+                  <MaterialCommunityIcons name="check-circle" size={118} color="#4ade80" />
+                </Animated.View>
+              ) : showProcessingSpinner ? (
                 <ActivityIndicator size={80} color="#F27121" style={styles.faceIconBackground} />
               ) : (faceCountdown > 0 && touchlessEnabled) ? (
                 <Text style={styles.countdownText}>{faceCountdown}</Text>
@@ -368,11 +532,30 @@ export default function FaceScanView({
                 <MaterialCommunityIcons name="face-recognition" size={120} color="rgba(255,255,255,0.2)" style={styles.faceIconBackground} />
               )}
             </View>
+            {showDetectionOverlay && (
+              <View style={styles.fullScreenDetectionOverlay} pointerEvents="none">
+                <AnimatedReanimated.View
+                  style={[
+                    styles.detectionFaceBox,
+                    cameraVisionFaceDetected && styles.detectionFaceBoxActive,
+                    animatedFaceBoxStyle,
+                  ]}
+                />
+                <View style={[styles.detectionBadge, { position: 'absolute', top: 12, left: 12 }]}>
+                  <Text style={styles.detectionBadgeText}>{detectionLabel}</Text>
+                </View>
+                <View style={[styles.detectionStatusCard, { position: 'absolute', top: 12, right: 12 }]}>
+                  <Text style={styles.detectionStatusText}>Yaw: {yawLabel}</Text>
+                  <Text style={styles.detectionStatusText}>Pitch: {pitchLabel}</Text>
+                  <Text style={styles.detectionStatusText}>Eyes: {eyeStatusLabel}</Text>
+                </View>
+              </View>
+            )}
             <Text style={styles.scanInstructionTextRight}>
-              {isCapturingHardware ? 'CAPTURING PHOTO...' : isVerifying ? 'VERIFYING IDENTITY...' : (faceCountdown > 0 && touchlessEnabled) ? `GET READY... ${faceCountdown}` : 'LOOK AT THE CAMERA'}
+              {instructionText}
             </Text>
             <Text style={styles.faceHintTextRight}>
-              {isCapturingHardware ? 'Hold still for a moment' : isVerifying ? 'Please wait while we verify your identity' : faceCountdown > 0 ? 'Position your face inside the frame' : livenessMessage}
+              {hintText}
             </Text>
           </View>
         </SafeAreaView>
