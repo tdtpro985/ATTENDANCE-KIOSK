@@ -363,6 +363,8 @@ export function useAttendance() {
   const stableFaceFrames = useSharedValue(0);
   const lastCameraVisionReadinessSent = useSharedValue(-1);
   const lastCameraVisionDetectedSent = useSharedValue(false);
+  const frameCounter = useSharedValue(0);
+  const lastFaceProcessedFrame = useSharedValue(0);
 
   // State
   const [faceCountdown, setFaceCountdown] = useState(0);
@@ -1215,9 +1217,18 @@ export function useAttendance() {
   const frameProcessor = useFrameProcessor((frame) => {
     'worklet';
 
+    frameCounter.value++;
+    
+    // SAFETY RESET: If the lock is held but no face has been processed for 30 frames (~1s), force reset.
+    // This prevents permanent "freezes" if runAsync callbacks are dropped by the system.
+    if (isProcessingFace.value && (frameCounter.value - lastFaceProcessedFrame.value > 30)) {
+      isProcessingFace.value = false;
+    }
+
     // 1. Check for manual embedding capture FIRST, bypassing other pauses
     if (captureEmbeddingFlag.value && boxedTfliteModel && !isProcessingFace.value) {
       isProcessingFace.value = true;
+      lastFaceProcessedFrame.value = frameCounter.value;
       runAsync(frame, () => {
         'worklet';
         try {
@@ -1277,6 +1288,7 @@ export function useAttendance() {
     }
 
     isProcessingFace.value = true;
+    lastFaceProcessedFrame.value = frameCounter.value;
     runAsync(frame, () => {
       'worklet';
       try {
@@ -1402,7 +1414,7 @@ export function useAttendance() {
         isProcessingFace.value = false;
       }
     });
-  }, [detectFaces, sharedTouchlessEnabled, sharedFaceEngineIsCameraVision, onFaceDetectedForIdentity, onTouchlessFaceLost, onCameraVisionDetectionProgress, onActiveLivenessPassed, updateLivenessMessage, isCapturingHardwareRef, workletPhase, blinkState, isProcessingFace, stableFaceFrames, lastCameraVisionReadinessSent, lastCameraVisionDetectedSent, tfliteModel, captureEmbeddingFlag, onEmbeddingCaptured, onEmbeddingFailed]);
+  }, [detectFaces, sharedTouchlessEnabled, sharedFaceEngineIsCameraVision, onFaceDetectedForIdentity, onTouchlessFaceLost, onCameraVisionDetectionProgress, onActiveLivenessPassed, updateLivenessMessage, isCapturingHardwareRef, workletPhase, blinkState, isProcessingFace, stableFaceFrames, lastCameraVisionReadinessSent, lastCameraVisionDetectedSent, tfliteModel, captureEmbeddingFlag, onEmbeddingCaptured, onEmbeddingFailed, frameCounter, lastFaceProcessedFrame]);
 
   // QR scanner
   const handleBarcodeScanned = async (event: any) => {
