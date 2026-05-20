@@ -16,8 +16,8 @@
 
 // Face++ API Configuration
 // IMPORTANT: never commit secrets. Configure via environment variables instead.
-define('FACEPP_API_KEY', getenv('FACEPP_API_KEY') ?: 'YOUR_FACEPP_API_KEY_HERE');
-define('FACEPP_API_SECRET', getenv('FACEPP_API_SECRET') ?: 'YOUR_FACEPP_API_SECRET_HERE');
+define('FACEPP_API_KEY', getenv('FACEPP_API_KEY') ?: '');
+define('FACEPP_API_SECRET', getenv('FACEPP_API_SECRET') ?: '');
 const FACEPP_API_BASE_URL = 'https://api-us.faceplusplus.com/facepp/v3';
 
 // Global variable to store last Face++ API error
