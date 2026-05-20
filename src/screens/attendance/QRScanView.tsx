@@ -3,7 +3,7 @@ import { ActivityIndicator, Animated, Text, TouchableOpacity, View } from 'react
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Camera, CameraProps } from 'react-native-vision-camera';
-import { styles } from './styles';
+import { styles } from './style/styles';
 
 type Props = {
   device: CameraProps['device'];

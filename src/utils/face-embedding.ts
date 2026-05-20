@@ -6,7 +6,7 @@ export const MODEL_CONFIG = {
   name: 'MobileFaceNet',
   inputSize: 112,
   channels: 3,
-  matchThreshold: 0.65,
+  matchThreshold: 0.75,
 } as const;
 
 export function compareEmbeddings(a: number[], b: number[]): number {

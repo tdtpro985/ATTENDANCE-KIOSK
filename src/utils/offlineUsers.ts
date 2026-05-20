@@ -12,7 +12,7 @@ export type CachedOfflineUser = {
   profile_picture?: string | null;
   role?: string | null;
   department?: string | null;
-  face_embedding?: string | null;
+  face_embedding?: string | number[] | null;
 };
 
 export type EmployeePayloadRow = {

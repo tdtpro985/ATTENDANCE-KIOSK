@@ -1,6 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
-import { styles } from './styles';
+import { styles } from './style/styles';
 import { useAttendance } from './useAttendance';
 import QRScanView from './QRScanView';
 import FaceScanView from './FaceScanView';

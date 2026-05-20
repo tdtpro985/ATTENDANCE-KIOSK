@@ -41,6 +41,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 require_once __DIR__ . '/connect.php';
 
+if (file_exists(__DIR__ . '/facepp_api.php')) {
+    require_once __DIR__ . '/facepp_api.php';
+}
+
 $qr = isset($_GET['qr']) ? trim((string) $_GET['qr']) : '';
 if ($qr === '') {
     http_response_code(400);
@@ -197,15 +201,26 @@ if ($resolvedLogId) {
         }
 
         // Get profile picture, face (for Face++) and face_embedding (for Camera Vision)
+        $engine = isset($_GET['engine']) ? trim((string)$_GET['engine']) : '';
+        $isFacePP = ($engine === 'facepp' || (empty($engine) && function_exists('facepp_api_configured') && facepp_api_configured()));
+        $selectCols = "profile_picture," . ($isFacePP ? "face" : "face_embedding");
+
         [$s4, $accountRows, $e4] = supabase_request(
             'GET',
-            "rest/v1/accounts?log_id=eq." . urlencode($resolvedLogId) . "&select=profile_picture,face,face_embedding"
+            "rest/v1/accounts?log_id=eq." . urlencode($resolvedLogId) . "&select=" . $selectCols
         );
         $profilePicture = null;
+        $face = null;
+        $faceEmbedding = null;
         if (!$e4 && is_array($accountRows) && count($accountRows) > 0) {
             $profilePicture = normalize_value($accountRows[0]['profile_picture'] ?? null);
             $face = normalize_value($accountRows[0]['face'] ?? null);
-            $faceEmbedding = normalize_value($accountRows[0]['face_embedding'] ?? null);
+            $rawEmbedding = $accountRows[0]['face_embedding'] ?? null;
+            if (is_array($rawEmbedding) || is_object($rawEmbedding)) {
+                $faceEmbedding = json_encode($rawEmbedding);
+            } else {
+                $faceEmbedding = normalize_value($rawEmbedding);
+            }
         }
 
     } else {

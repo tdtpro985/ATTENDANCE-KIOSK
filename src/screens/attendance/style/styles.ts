@@ -177,7 +177,6 @@ export const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 80,
     elevation: 80,
-    // pointerEvents is set on the component; styles control layout only
   },
   detectionFaceBox: {
     position: 'absolute',
@@ -409,6 +408,7 @@ export const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 10,
     fontWeight: '900',
+    paddingHorizontal: 2,
   },
   mainActionButton: {
     flex: 1,
@@ -603,21 +603,6 @@ export const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
     marginBottom: 20,
-  },
-  clockInTimeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginTop: 10,
-  },
-  clockInTimeText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-    marginLeft: 8,
   },
   leftPanelFooter: {
     alignItems: 'center',

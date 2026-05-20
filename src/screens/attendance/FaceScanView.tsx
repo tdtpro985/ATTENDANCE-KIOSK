@@ -15,7 +15,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Camera, CameraProps } from 'react-native-vision-camera';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import AnimatedReanimated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { styles } from './styles';
+import { styles } from './style/FaceScanViewStyle';
 import type { ResolvedUser } from './types';
 import type { FaceEngine } from '../settings/features/FaceRecogEngineFeature';
 import type { CameraVisionFaceTelemetry, FaceScanStage } from './types';
@@ -339,16 +339,12 @@ export default function FaceScanView({
               key={face.id}
               style={[
                 styles.detectionFaceBox,
+                styles.bystanderFaceBox,
                 {
-                  position: 'absolute',
                   left: px.left,
                   top: px.top,
                   width: px.width,
                   height: px.height,
-                  borderColor: 'rgba(255, 255, 255, 0.35)',
-                  borderStyle: 'dashed',
-                  borderWidth: 2,
-                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
                 },
               ]}
             />
@@ -372,7 +368,7 @@ export default function FaceScanView({
         <TouchableOpacity onPress={onBack} style={styles.headerIconButton}>
           <MaterialCommunityIcons name="chevron-left" size={28} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButton, { marginLeft: 10 }]}>
+        <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButton, styles.marginLeft10]}>
           <MaterialCommunityIcons name="history" size={22} color="#fff" />
           {pendingSyncCount > 0 && <View style={styles.headerSyncBadge} />}
         </TouchableOpacity>
@@ -406,7 +402,7 @@ export default function FaceScanView({
       {isClockingOut && clockInTime ? (
         <View style={styles.clockInTimeContainer}>
           <MaterialCommunityIcons name="clock-outline" size={14} color="rgba(255,255,255,0.8)" />
-          <Text style={[styles.clockInTimeText, { fontSize: 12 }]}>{clockInTime}</Text>
+          <Text style={styles.clockInTimeTextMini}>{clockInTime}</Text>
         </View>
       ) : null}
     </View>
@@ -442,7 +438,7 @@ export default function FaceScanView({
   if (!isLandscape) {
     return (
       <View style={styles.portraitFaceContainer} onLayout={handleOverlayLayout}>
-        <Camera ref={cameraRef} style={[styles.fullScreenCamera, { transform: cameraTransform }]} device={device} isActive={true} photo={true} frameProcessor={frameProcessor} androidPreviewViewType="texture-view" outputOrientation="device" resizeMode="cover" />
+        <Camera ref={cameraRef} style={[styles.fullScreenCamera, { transform: cameraTransform }]} device={device} isActive={true} photo={true} pixelFormat="yuv" frameProcessor={frameProcessor} androidPreviewViewType="texture-view" outputOrientation="device" resizeMode="cover" />
         <Animated.View style={[styles.snapFlash, { opacity: flashAnim }]} pointerEvents="none" />
         <View style={styles.cameraTintLight} pointerEvents="none" />
         {renderDetectionOverlay()}
@@ -462,7 +458,7 @@ export default function FaceScanView({
               </View>
             ) : (!touchlessEnabled && (
               <View style={styles.footerButtons}>
-                <TouchableOpacity style={[styles.mainActionButton, { backgroundColor: isClockingOut ? '#C0392B' : accentColor }]} onPress={onAttendance} disabled={isVerifying || isCapturingHardware}>
+                <TouchableOpacity style={[styles.mainActionButton, isClockingOut ? styles.mainActionButtonClockOut : { backgroundColor: accentColor }]} onPress={onAttendance} disabled={isVerifying || isCapturingHardware}>
                   <Text style={styles.mainActionButtonText}>{isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN'}</Text>
                 </TouchableOpacity>
               </View>
@@ -479,7 +475,7 @@ export default function FaceScanView({
         <SafeAreaView style={styles.panelSafeArea} edges={['top', 'left', 'bottom']}>
           <View style={styles.leftPanelHeader}>
             <TouchableOpacity onPress={onBack} style={styles.headerIconButtonLight}><MaterialCommunityIcons name="chevron-left" size={28} color={accentColor} /></TouchableOpacity>
-            <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButtonLight, { marginLeft: 10 }]}><MaterialCommunityIcons name="history" size={22} color={accentColor} />{pendingSyncCount > 0 && <View style={styles.headerSyncBadge} />}</TouchableOpacity>
+            <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButtonLight, styles.marginLeft10]}><MaterialCommunityIcons name="history" size={22} color={accentColor} />{pendingSyncCount > 0 && <View style={styles.headerSyncBadge} />}</TouchableOpacity>
           </View>
           <View style={styles.profileInfoContainer}>
             <View style={styles.profileImageContainer}>
@@ -494,12 +490,12 @@ export default function FaceScanView({
           <View style={styles.leftPanelFooter}>
             {showProcessingSpinner ? (
               <View style={styles.verifyingPillLeft}><ActivityIndicator size="small" color={accentColor} /><Text style={[styles.verifyingPillTextLeft, { color: accentColor }]}>{scanStage === 'capturing' ? 'Capturing...' : isClockingOut ? 'Processing Logout...' : 'Verifying Identity...'}</Text></View>
-            ) : (!touchlessEnabled && <TouchableOpacity style={[styles.mainActionButtonLeft, { backgroundColor: isClockingOut ? '#C0392B' : '#fff' }]} onPress={onAttendance} disabled={isVerifying || isCapturingHardware}><Text style={[styles.mainActionButtonTextLeft, { color: isClockingOut ? '#fff' : accentColor }]}>{isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN'}</Text></TouchableOpacity>)}
+            ) : (!touchlessEnabled && <TouchableOpacity style={[styles.mainActionButtonLeft, isClockingOut ? styles.mainActionButtonLeftClockOut : styles.mainActionButtonLeftClockIn]} onPress={onAttendance} disabled={isVerifying || isCapturingHardware}><Text style={[styles.mainActionButtonTextLeft, isClockingOut ? styles.mainActionButtonTextLeftClockOut : { color: accentColor }]}>{isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN'}</Text></TouchableOpacity>)}
           </View>
         </SafeAreaView>
       </View>
       <View style={styles.rightPanel} onLayout={handleOverlayLayout}>
-        <Camera ref={cameraRef} style={[styles.fullScreenCamera, { transform: cameraTransform }]} device={device} isActive={true} photo={true} frameProcessor={frameProcessor} androidPreviewViewType="texture-view" outputOrientation="device" resizeMode="cover" />
+        <Camera ref={cameraRef} style={[styles.fullScreenCamera, { transform: cameraTransform }]} device={device} isActive={true} photo={true} pixelFormat="yuv" frameProcessor={frameProcessor} androidPreviewViewType="texture-view" outputOrientation="device" resizeMode="cover" />
         <Animated.View style={[styles.snapFlash, { opacity: flashAnim }]} pointerEvents="none" />
         <View style={styles.cameraTintLight} pointerEvents="none" />
         {renderDetectionOverlay()}
