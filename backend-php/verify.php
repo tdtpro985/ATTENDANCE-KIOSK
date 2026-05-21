@@ -58,6 +58,7 @@ if (!empty($_FILES['photo_liveness']) && !empty($_FILES['photo_liveness']['tmp_n
 }
 
 $userId = isset($_POST['user_id']) ? trim($_POST['user_id']) : null;
+$engine = isset($_POST['engine']) ? trim($_POST['engine']) : '';
 if (!$userId) {
     http_response_code(400);
     echo json_encode([
@@ -93,7 +94,7 @@ if ($photoLivenessBase64) {
 }
 
 // 2. Fetch registered face
-[$faceData, $errorMsg] = fetchUserFaceData($userId);
+[$faceData, $errorMsg] = fetchUserFaceData($userId, $engine);
 if ($errorMsg) {
     $code = ($errorMsg === 'User not found') ? 404 : 500;
     http_response_code($code);
