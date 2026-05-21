@@ -19,6 +19,7 @@ require_once __DIR__ . '/FaceVerificationHelper.php';
 
 $userId = isset($_GET['log_id']) ? trim((string)$_GET['log_id']) : null;
 $username = isset($_GET['username']) ? trim((string)$_GET['username']) : null;
+$engine = isset($_GET['engine']) ? trim((string)$_GET['engine']) : '';
 
 if (!$userId && !$username) {
     http_response_code(400);
@@ -39,7 +40,7 @@ if (!$userId && $username) {
     $userId = $data[0]['log_id'];
 }
 
-[$faceData, $errorMsg] = fetchUserFaceData($userId);
+[$faceData, $errorMsg] = fetchUserFaceData($userId, $engine);
 
 if ($errorMsg) {
     http_response_code(500);

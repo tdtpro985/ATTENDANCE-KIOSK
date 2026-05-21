@@ -7,8 +7,8 @@ if (file_exists(__DIR__ . '/facepp_api.php')) {
     require_once __DIR__ . '/facepp_api.php';
 }
 
-function fetchUserFaceData(string $userId) {
-    $isFacePP = (function_exists('facepp_api_configured') && facepp_api_configured());
+function fetchUserFaceData(string $userId, string $engine = '') {
+    $isFacePP = ($engine === 'facepp' || (empty($engine) && function_exists('facepp_api_configured') && facepp_api_configured()));
     $selectCols = "profile_picture,username,log_id," . ($isFacePP ? "face" : "face_embedding");
     
     [$status, $data, $err] = supabase_request('GET', "rest/v1/accounts?log_id=eq." . urlencode($userId) . "&select=" . $selectCols);

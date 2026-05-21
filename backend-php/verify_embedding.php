@@ -21,6 +21,7 @@ $input = json_decode(file_get_contents('php://input'), true) ?? $_REQUEST;
 
 $userId = isset($input['log_id']) ? trim((string)$input['log_id']) : null;
 $liveEmbeddingRaw = $input['live_embedding'] ?? null;
+$engine = isset($input['engine']) ? trim((string)$input['engine']) : '';
 
 if (!$userId || !$liveEmbeddingRaw) {
     http_response_code(400);
@@ -41,7 +42,7 @@ if (!is_array($liveEmbedding) || count($liveEmbedding) === 0) {
     exit;
 }
 
-[$faceData, $errorMsg] = fetchUserFaceData($userId);
+[$faceData, $errorMsg] = fetchUserFaceData($userId, $engine);
 
 if ($errorMsg) {
     http_response_code(500);

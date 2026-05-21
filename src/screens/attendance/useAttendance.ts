@@ -819,6 +819,7 @@ export function useAttendance() {
     if (photoUri2) form.append('photo_liveness', { uri: photoUri2, name: 'selfie_2.jpg', type: 'image/jpeg' } as any);
     form.append('clock_time', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
     form.append('user_id', userId);
+    form.append('engine', faceEngineRef.current);
     
     // Add client-side active liveness score if available
     if (livenessScoreRef.current !== null) {
