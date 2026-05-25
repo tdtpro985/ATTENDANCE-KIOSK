@@ -37,6 +37,20 @@ export default function AttendanceScanner({ onBack, onOpenOffline }: AttendanceP
     );
   }
 
+  if (!state.hasLocationPermission) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={{ color: '#fff', fontSize: 18, marginBottom: 10, fontWeight: 'bold' }}>Location access needed.</Text>
+        <Text style={{ color: 'rgba(255,255,255,0.7)', textAlign: 'center', marginHorizontal: 40, marginBottom: 20 }}>
+          The kiosk requires location services to record secure and verified attendance.
+        </Text>
+        <TouchableOpacity style={styles.permissionButton} onPress={state.requestLocationPermission}>
+          <Text style={styles.permissionText}>Allow Location</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {!state.qrVerified ? (

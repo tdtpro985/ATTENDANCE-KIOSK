@@ -323,6 +323,19 @@ export function useAttendance() {
   const hasTrackedFace = useSharedValue(false);
 
   // State
+  const [hasLocationPermission, setHasLocationPermission] = useState(false);
+
+  const requestLocationPermission = useCallback(async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setHasLocationPermission(status === 'granted');
+      return status === 'granted';
+    } catch {
+      setHasLocationPermission(false);
+      return false;
+    }
+  }, []);
+
   const [faceCountdown, setFaceCountdown] = useState(0);
   const [countdownActive, setCountdownActive] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -976,19 +989,26 @@ export function useAttendance() {
       const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const localTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
       
-      // Capture location
+      // Try to load cached location first to make transactions instant
       let locationData: { address?: string; latitude?: number; longitude?: number; radius?: number } = {};
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          const [addressRes] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
-          locationData = {
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            radius: loc.coords.accuracy ?? 0,
-            address: addressRes ? `${addressRes.street || ''}, ${addressRes.city || ''}, ${addressRes.region || ''}`.replace(/^, |, $/g, '') : 'Unknown'
-          };
+        const cachedRaw = await AsyncStorage.getItem('kiosk_cached_location');
+        if (cachedRaw) {
+          locationData = JSON.parse(cachedRaw);
+        } else {
+          // Fallback to live fetch if cache is somehow missing
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            const [addressRes] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+            locationData = {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+              radius: loc.coords.accuracy ?? 0,
+              address: addressRes ? `${addressRes.street || ''}, ${addressRes.city || ''}, ${addressRes.region || ''}`.replace(/^, |, $/g, '') : 'Unknown'
+            };
+            await AsyncStorage.setItem('kiosk_cached_location', JSON.stringify(locationData));
+          }
         }
       } catch (e) {
         console.log('[Attendance] Could not capture location', e);
@@ -1141,14 +1161,6 @@ export function useAttendance() {
       return;
     }
     
-    // Auto-clockout in touchless mode: skip face verification
-    if (attendanceAction === 'clock_out' && touchlessEnabled) {
-      faceProcessingRef.current = true;
-      setIsVerifying(true);
-      setScanStage('recording');
-      await executeAttendanceRecording();
-      return;
-    }
 
     if (!hasPermission) {
       setScanStage('idle');
@@ -1195,7 +1207,7 @@ export function useAttendance() {
   }, [attendanceAction, touchlessEnabled, hasPermission, isLikelyConnectivityError, livenessEnabled, offlineModeEnabled, qrVerified, showModal, workletPhase, executeAttendanceRecording, faceEngine, cameraVisionFaceDetected, cameraVisionReadiness, logCameraVisionGateSkip, executeFaceVerification]);
 
   const onFaceDetectedForIdentity = Worklets.createRunOnJS(() => {
-    if (!touchlessEnabledRef.current || modalVisibleRef.current || !qrVerified || attendanceAction !== 'clock_in' || countdownRef.current > 0 || countdownActive || faceProcessingRef.current || isVerifying) return;
+    if (!touchlessEnabledRef.current || modalVisibleRef.current || !qrVerified || countdownRef.current > 0 || countdownActive || faceProcessingRef.current || isVerifying) return;
     if (faceEngineRef.current === 'facepp') return;
     if (faceEngineRef.current === 'camera_vision') {
       setScanStage('detecting');
@@ -1279,7 +1291,6 @@ export function useAttendance() {
     if (
       faceEngineRef.current === 'camera_vision' &&
       qrVerified &&
-      attendanceAction === 'clock_in' &&
       !isVerifying &&
       !faceProcessingRef.current &&
       !modalVisibleRef.current
@@ -1505,6 +1516,8 @@ export function useAttendance() {
     if (lastScanRef.current.data === data && now - lastScanRef.current.ts < 1500) return;
     qrProcessingRef.current = true;
     lastScanRef.current = { data, ts: now };
+    touchlessTriggeredRef.current = false;
+    cameraVisionAutoTriggeredRef.current = false;
     playSnapSound();
     Animated.sequence([
       Animated.timing(flashAnim, { toValue: 1, duration: 50, useNativeDriver: true }),
@@ -1703,14 +1716,14 @@ export function useAttendance() {
   }, [qrVerified, isVerifying, scanLineAnim]);
 
   useEffect(() => {
-    if (!countdownActive || !qrVerified || attendanceAction !== 'clock_in' || isVerifying) return;
+    if (!countdownActive || !qrVerified || isVerifying) return;
     if (faceCountdown <= 0) return;
     const timer = setTimeout(() => { const next = faceCountdown - 1; setFaceCountdown(next); countdownRef.current = next; }, 1000);
     return () => clearTimeout(timer);
-  }, [countdownActive, qrVerified, attendanceAction, isVerifying, faceCountdown]);
+  }, [countdownActive, qrVerified, isVerifying, faceCountdown]);
 
   useEffect(() => {
-    if (!countdownActive || !touchlessEnabled || !qrVerified || attendanceAction !== 'clock_in') return;
+    if (!countdownActive || !touchlessEnabled || !qrVerified) return;
     if (faceEngine !== 'facepp') return;
     if (showResultModal || modalVisibleRef.current) return;
     if (faceCountdown > 0 || isVerifying || faceProcessingRef.current) return;
@@ -1718,10 +1731,10 @@ export function useAttendance() {
     faceppCountdownStartedRef.current = false;
     setScanStage('capturing');
     handleAttendance();
-  }, [attendanceAction, countdownActive, faceCountdown, faceEngine, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+  }, [countdownActive, faceCountdown, faceEngine, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
 
   useEffect(() => {
-    if (!touchlessEnabled || !qrVerified || attendanceAction !== 'clock_in') return;
+    if (!touchlessEnabled || !qrVerified) return;
     if (faceEngine !== 'facepp') return;
     if (isVerifying || faceProcessingRef.current || showResultModal || modalVisibleRef.current) return;
     if (countdownActive || faceCountdown > 0 || faceppCountdownStartedRef.current) return;
@@ -1731,10 +1744,10 @@ export function useAttendance() {
     setCountdownActive(true);
     setScanStage('countdown');
     setLivenessMessage(`Capturing in ${FACEPP_TOUCHLESS_COUNTDOWN_SECONDS}...`);
-  }, [attendanceAction, countdownActive, faceCountdown, faceEngine, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+  }, [countdownActive, faceCountdown, faceEngine, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
 
   useEffect(() => {
-    if (!touchlessEnabled || !qrVerified || attendanceAction !== 'clock_in') return;
+    if (!touchlessEnabled || !qrVerified) return;
     if (faceEngine !== 'camera_vision') return;
     if (isVerifying || faceProcessingRef.current || showResultModal || modalVisibleRef.current) return;
 
@@ -1759,7 +1772,6 @@ export function useAttendance() {
       cameraVisionAutoTriggeredRef.current = false;
     }
   }, [
-    attendanceAction,
     cameraVisionFaceDetected,
     cameraVisionReadiness,
     faceEngine,
@@ -1818,13 +1830,52 @@ export function useAttendance() {
     previousOfflineStateRef.current = offlineModeEnabled;
   }, [offlineModeEnabled, showOfflineToast]);
 
+  // Pre-fetch and cache location in background at mount time if not cached
   useEffect(() => {
-    if (!qrVerified || !touchlessEnabled || isVerifying || touchlessTriggeredRef.current) return;
-    if (attendanceAction !== 'clock_out') return;
-    touchlessTriggeredRef.current = true;
-    const timer = setTimeout(() => handleAttendance(), 200);
-    return () => clearTimeout(timer);
-  }, [attendanceAction, handleAttendance, isVerifying, qrVerified, touchlessEnabled]);
+    async function initLocation() {
+      try {
+        let { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          setHasLocationPermission(true);
+          const cached = await AsyncStorage.getItem('kiosk_cached_location');
+          if (!cached) {
+            console.log('[Location] Cache empty, pre-fetching Kiosk location in background...');
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            const [addressRes] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+            const locationData = {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+              radius: loc.coords.accuracy ?? 0,
+              address: addressRes ? `${addressRes.street || ''}, ${addressRes.city || ''}, ${addressRes.region || ''}`.replace(/^, |, $/g, '') : 'Unknown'
+            };
+            await AsyncStorage.setItem('kiosk_cached_location', JSON.stringify(locationData));
+            console.log('[Location] Background pre-fetch successful:', locationData.address);
+          } else {
+            console.log('[Location] Using cached Kiosk location:', JSON.parse(cached).address);
+          }
+        } else {
+          // Auto-prompt location request once it opens
+          const res = await Location.requestForegroundPermissionsAsync();
+          setHasLocationPermission(res.status === 'granted');
+          if (res.status === 'granted') {
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            const [addressRes] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+            const locationData = {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+              radius: loc.coords.accuracy ?? 0,
+              address: addressRes ? `${addressRes.street || ''}, ${addressRes.city || ''}, ${addressRes.region || ''}`.replace(/^, |, $/g, '') : 'Unknown'
+            };
+            await AsyncStorage.setItem('kiosk_cached_location', JSON.stringify(locationData));
+            console.log('[Location] Background pre-fetch successful after request:', locationData.address);
+          }
+        }
+      } catch (e) {
+        console.log('[Location] Background pre-fetch failed:', e);
+      }
+    }
+    initLocation();
+  }, []);
 
   const formatTo12Hour = (timeStr: string) => {
     if (!timeStr) return '';
@@ -1849,6 +1900,7 @@ export function useAttendance() {
 
   return {
     colors, device, hasPermission, requestPermission,
+    hasLocationPermission, requestLocationPermission,
     cameraFormat, cameraRef, codeScanner, frameProcessor,
     flashAnim, scanLineAnim, scaleAnim,
     formattedTime, formattedDate,
