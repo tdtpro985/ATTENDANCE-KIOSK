@@ -755,40 +755,49 @@ export function useAttendance() {
     let imageToProcess = `file://${photo.path}`;
 
     if (faceBox) {
-      const uprightW = Math.min(photo.width, photo.height);
-      const uprightH = Math.max(photo.width, photo.height);
-
-      // Determine if the frame is rotated relative to the upright photo
-      const sourceW = faceBox.frameWidth || uprightW;
-      const sourceH = faceBox.frameHeight || uprightH;
+      const photoW = photo.width;
+      const photoH = photo.height;
       
-      const isRotated = (sourceW > sourceH && uprightW < uprightH) || (sourceW < sourceH && uprightW > uprightH);
-      const orientedFrameWidth = isRotated ? sourceH : sourceW;
-      const orientedFrameHeight = isRotated ? sourceW : sourceH;
+      // Determine if the frame is rotated relative to the physical photo
+      const frameW = faceBox.frameWidth || (photoW > photoH ? 1280 : 720);
+      const frameH = faceBox.frameHeight || (photoW > photoH ? 720 : 1280);
+      
+      const isFrameLandscape = frameW > frameH;
+      const isPhotoLandscape = photoW > photoH;
+      const isRotated = isFrameLandscape !== isPhotoLandscape;
+
+      const orientedFrameWidth = isRotated ? frameH : frameW;
+      const orientedFrameHeight = isRotated ? frameW : frameH;
 
       // Recover the raw x, y coordinates from the face detector (which are in the oriented space)
-      const rawFaceX = faceBox.left * sourceW;
-      const rawFaceY = faceBox.top * sourceH;
-      const rawFaceW = faceBox.width * sourceW;
-      const rawFaceH = faceBox.height * sourceH;
+      const rawFaceX = faceBox.left * orientedFrameWidth;
+      const rawFaceY = faceBox.top * orientedFrameHeight;
+      const rawFaceW = faceBox.width * orientedFrameWidth;
+      const rawFaceH = faceBox.height * orientedFrameHeight;
       
-      const coverScale = Math.max(uprightW / orientedFrameWidth, uprightH / orientedFrameHeight);
-      const renderedW = orientedFrameWidth * coverScale;
-      const renderedH = orientedFrameHeight * coverScale;
-      const offsetX = (renderedW - uprightW) / 2;
-      const offsetY = (renderedH - uprightH) / 2;
+      // Math contain-scale preserves native field of view and centers of sensor cropping
+      const scale = Math.min(photoW / orientedFrameWidth, photoH / orientedFrameHeight);
+      const renderedW = orientedFrameWidth * scale;
+      const renderedH = orientedFrameHeight * scale;
+      const offsetX = (photoW - renderedW) / 2;
+      const offsetY = (photoH - renderedH) / 2;
 
       // Map from oriented frame space to photo space
-      const photoFaceX = (rawFaceX * coverScale) - offsetX;
-      const photoFaceY = (rawFaceY * coverScale) - offsetY;
-      const photoFaceW = rawFaceW * coverScale;
-      const photoFaceH = rawFaceH * coverScale;
+      let photoFaceX = (rawFaceX * scale) + offsetX;
+      let photoFaceY = (rawFaceY * scale) + offsetY;
+      const photoFaceW = rawFaceW * scale;
+      const photoFaceH = rawFaceH * scale;
+
+      // Mirror the horizontal coordinate back if the front camera is active
+      if (device?.position === 'front') {
+        photoFaceX = photoW - (photoFaceX + photoFaceW);
+      }
 
       const pxCenterX = photoFaceX + photoFaceW / 2;
       const pxCenterY = photoFaceY + photoFaceH / 2;
 
       // Calculate face scale relative to the frame. Far faces are small, close faces are large.
-      const faceRatio = Math.max(photoFaceW / sourceW, photoFaceH / sourceH);
+      const faceRatio = Math.max(photoFaceW / photoW, photoFaceH / photoH);
       
       // Far faces (ratio ≤ 0.15): 2.0x padding to compensate for stale tracking box
       // Close faces (ratio ≥ 0.35): 1.6x standard padding
@@ -809,11 +818,11 @@ export function useAttendance() {
       const size = Math.floor(pxSide);
 
       // Clamp to bounds using actual photo dimensions (handles landscape raw frames robustly)
-      let safeSize = Math.min(size, photo.width, photo.height);
-      originX = Math.max(0, Math.min(photo.width - safeSize, originX));
-      originY = Math.max(0, Math.min(photo.height - safeSize, originY));
+      let safeSize = Math.min(size, photoW, photoH);
+      originX = Math.max(0, Math.min(photoW - safeSize, originX));
+      originY = Math.max(0, Math.min(photoH - safeSize, originY));
 
-      console.log(`[CameraVision] Square Crop (Far Compensation): origin=${originX},${originY} size=${safeSize}x${safeSize}, paddingMult=${paddingMult.toFixed(2)}x (photo raw: ${photo.width}x${photo.height})`);
+      console.log(`[CameraVision] Square Crop (Far Compensation): origin=${originX},${originY} size=${safeSize}x${safeSize}, paddingMult=${paddingMult.toFixed(2)}x (photo raw: ${photoW}x${photoH})`);
 
       if (safeSize > 0) {
         try {
@@ -1500,6 +1509,7 @@ export function useAttendance() {
         if (workletPhase.value === 0) {
           if (detectedFace) {
             stableFaceFrames.value = Math.min(stableFaceFrames.value + 1, CAMERA_VISION_STABLE_FACE_FRAMES);
+
             if (sharedFaceEngineIsCameraVision.value) {
               const readinessPercent = Math.min(
                 100,

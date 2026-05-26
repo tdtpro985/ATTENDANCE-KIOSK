@@ -56,7 +56,7 @@ The HRIS Kiosk attendance system features a fully **on-device local face verific
         ▼
 [Cosine Similarity Matching] ◄───────► Compares against accounts.face_embedding (stored locally)
         │
-        ▼ (Similarity Score >= 0.28)
+        ▼ (Similarity Score >= 0.52)
 [Identity Verified ✅]
         │
         ▼ (Retrieves pre-fetched location coordinates & street address)
@@ -247,11 +247,18 @@ The comparison engine evaluates similarity against the recommended defaults:
 
 | Cosine Score | Match Verdict | Action / User Feedback |
 |---|---|---|
-| $\ge 0.28$ | **✅ Verified Match** | Proceeds to insert attendance immediately. |
-| $< 0.28$ | **❌ Mismatch** | Prompts failure modal, showing score, advising better lighting or alignment. |
+| $\ge 0.52$ | **✅ Verified Match*** | Proceeds to insert attendance immediately. |
+| $< 0.52$ | **❌ Mismatch** | Prompts failure modal, showing score, advising better lighting or alignment. |
+
+#### * The Multi-Angle Consensus Rule (Top-2 Agreement)
+To prevent "lucky hits" where an imposter might score high against a single specific angle of the employee, the engine implements a **Consensus Gate**:
+
+*   **Logic**: If an employee has 3 or more face angles registered, the system requires **at least 2 angles** to score above the **Sub-Threshold (45%)**.
+*   **Security Benefit**: Even if an imposter scores 56% (above the 52% primary threshold) on one specific angle, if they score poorly on all other angles (below 45%), the verification will **FAIL**.
+*   **Verdict Rule**: `Verified = (MaxSimilarity >= 52%) AND (At least 2 angles >= 45%)`.
 
 > [!TIP]
-> The database supports multi-angle enrolled profiles (arrays of embeddings). The Kiosk compares the live captured embedding against all enrolled angles, returning the **maximum similarity score** found to ensure robust verification regardless of normal head tilts.
+> The database supports multi-angle enrolled profiles (arrays of embeddings). The Kiosk compares the live captured embedding against all enrolled angles, returning the **maximum similarity score** found for logging, while requiring consensus for the final pass/fail decision.
 
 ---
 
