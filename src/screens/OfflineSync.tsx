@@ -5,9 +5,7 @@ import { BACKEND_URL } from '../config/backend';
 import { Colors, useTheme } from '../config/theme';
 import {
   getOfflineAttendanceQueue,
-  markOfflineAttendanceFailed,
-  markOfflineAttendancePending,
-  removeOfflineAttendanceItem,
+  syncOfflineQueue,
   type OfflineAttendanceItem,
 } from '../utils/offlineAttendance';
 
@@ -111,50 +109,17 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
   const failedItems = useMemo(() => items.filter((item) => item.status === 'failed'), [items]);
   const displayedItems = activeTab === 'pending' ? pendingItems : failedItems;
 
-  const syncItem = useCallback(async (item: OfflineAttendanceItem) => {
-    await markOfflineAttendancePending(item.id);
-
-    const response = await fetch(`${BACKEND_URL}/record_attendance.php`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'ngrok-skip-browser-warning': 'true',
-      },
-      body: JSON.stringify({ user_id: item.userId, action: item.action }),
-    });
-
-    const payload = await response.json();
-    if (!response.ok || !payload?.ok) {
-      throw new Error(payload?.message || `Sync failed (${response.status})`);
-    }
-
-    await removeOfflineAttendanceItem(item.id);
-  }, []);
-
   const handleSyncNow = useCallback(async () => {
     if (isSyncing) return;
 
     setIsSyncing(true);
     try {
-      const queue = await getOfflineAttendanceQueue();
-      const candidates = queue.filter((item) => item.status === 'pending' || item.status === 'failed');
-
-      for (const item of candidates) {
-        try {
-          await syncItem(item);
-        } catch (error: any) {
-          await markOfflineAttendanceFailed(
-            item.id,
-            error?.message || 'Connection error. Please check your network settings.'
-          );
-        }
-      }
+      await syncOfflineQueue();
     } finally {
       await reloadQueue();
       setIsSyncing(false);
     }
-  }, [isSyncing, reloadQueue, syncItem]);
+  }, [isSyncing, reloadQueue]);
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
