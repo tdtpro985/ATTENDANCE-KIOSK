@@ -9,10 +9,13 @@ import Settings from './src/screens/settings';
 import OfflineSync from './src/screens/OfflineSync';
 import * as Location from 'expo-location';
 import { ThemeContext, Theme, getStoredTheme, saveTheme, ThemeType, Colors } from './src/config/theme';
+import { useAutoSync } from './src/utils/useAutoSync';
 
 export default function App() {
   const { width: windowWidth } = useWindowDimensions();
   const isTablet = windowWidth > 600;
+
+  useAutoSync();
 
   const [screen, setScreen] = useState<'home' | 'qr' | 'profile' | 'settings' | 'offline'>('home');
   const [theme, setThemeState] = useState<ThemeType>('light');
