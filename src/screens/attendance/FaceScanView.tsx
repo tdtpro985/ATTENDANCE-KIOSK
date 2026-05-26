@@ -85,13 +85,13 @@ export default function FaceScanView({
   selectedUser,
   accentColor,
   livenessMessage,
-  showTelemetry = true,
+  showTelemetry = false,
   onBack,
   onOpenOffline,
   onAttendance,
 }: Props) {
   const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-  
+
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const [overlaySize, setOverlaySize] = useState({ width, height });
@@ -131,7 +131,7 @@ export default function FaceScanView({
 
   const getDynamicCameraStyle = () => {
     if (!requiresAndroidRotationFix) return styles.fullScreenCamera;
-    
+
     if (orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT) {
       return {
         position: 'absolute' as const,
@@ -184,8 +184,8 @@ export default function FaceScanView({
     if (box.width <= 1 && box.height <= 1) {
       const sourceFrameWidth = box.frameWidth || overlayWidth;
       const sourceFrameHeight = box.frameHeight || overlayHeight;
-      const isRotated = (sourceFrameWidth > sourceFrameHeight && overlayWidth < overlayHeight) || 
-                       (sourceFrameWidth < sourceFrameHeight && overlayWidth > overlayHeight);
+      const isRotated = (sourceFrameWidth > sourceFrameHeight && overlayWidth < overlayHeight) ||
+        (sourceFrameWidth < sourceFrameHeight && overlayWidth > overlayHeight);
 
       // 1. Native front camera preview is horizontally mirrored BEFORE CSS rotation
       let rawX = box.left;
@@ -323,7 +323,7 @@ export default function FaceScanView({
       backgroundColor: isQualityPassed ? 'rgba(46, 204, 113, 0.15)' : 'transparent',
     };
   });
-  
+
   const showProcessingSpinner = isCapturingHardware || isVerifying || scanStage === 'capturing' || scanStage === 'verifying' || scanStage === 'recording';
   const showDetectionOverlay = isCameraVisionMode && cameraVisionFaceDetected && !!cameraVisionFaceBox && !showProcessingSpinner && scanStage !== 'success';
 

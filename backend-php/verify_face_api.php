@@ -18,7 +18,8 @@ ob_start();
 register_shutdown_function(function () {
     $err = error_get_last();
     if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
-        if (ob_get_length()) ob_end_clean();
+        if (ob_get_length())
+            ob_end_clean();
         http_response_code(500);
         header('Content-Type: application/json');
         echo json_encode(['ok' => false, 'message' => 'Server error', 'detail' => $err['message']]);
@@ -50,9 +51,9 @@ if (!$input) {
     exit;
 }
 
-$userId = isset($input['log_id']) ? trim((string)$input['log_id']) : null;
+$userId = isset($input['log_id']) ? trim((string) $input['log_id']) : null;
 $liveEmbeddingRaw = $input['live_embedding'] ?? null;
-$customThreshold = isset($input['threshold']) ? (float)$input['threshold'] : null;
+$customThreshold = isset($input['threshold']) ? (float) $input['threshold'] : null;
 
 if (!$userId) {
     http_response_code(400);
@@ -142,8 +143,8 @@ foreach ($angleEmbeddings as $idx => $angleEmb) {
     }
 }
 
-$matchThreshold = $customThreshold ?? 0.35;
-$subThreshold = 0.28;
+$matchThreshold = $customThreshold ?? 0.52;
+$subThreshold = 0.45;
 
 // top2_agree: for multi-angle embeddings, at least 2 angles must agree above sub-threshold
 $agreeingAngles = count(array_filter($perAngleScores, fn($s) => $s >= $subThreshold));

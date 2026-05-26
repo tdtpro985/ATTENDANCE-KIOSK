@@ -19,9 +19,9 @@ require_once __DIR__ . '/FaceVerificationHelper.php';
 
 $input = json_decode(file_get_contents('php://input'), true) ?? $_REQUEST;
 
-$userId = isset($input['log_id']) ? trim((string)$input['log_id']) : null;
+$userId = isset($input['log_id']) ? trim((string) $input['log_id']) : null;
 $liveEmbeddingRaw = $input['live_embedding'] ?? null;
-$engine = isset($input['engine']) ? trim((string)$input['engine']) : '';
+$engine = isset($input['engine']) ? trim((string) $input['engine']) : '';
 
 if (!$userId || !$liveEmbeddingRaw) {
     http_response_code(400);
@@ -97,8 +97,8 @@ foreach ($angleEmbeddings as $idx => $angleEmb) {
     }
 }
 
-$matchThreshold = 0.35;
-$subThreshold = 0.28;
+$matchThreshold = 0.52;
+$subThreshold = 0.45;
 
 // top2_agree: for multi-angle embeddings, require at least 2 angles to agree above sub-threshold
 $agreeingAngles = count(array_filter($perAngleScores, fn($s) => $s >= $subThreshold));

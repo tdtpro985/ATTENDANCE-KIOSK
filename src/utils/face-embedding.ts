@@ -2,8 +2,8 @@ export const MODEL_CONFIG = {
   name: 'buffalo_sc',
   inputSize: 112,
   channels: 3,
-  matchThreshold: 0.35,
-  subThreshold: 0.28,
+  matchThreshold: 0.52,
+  subThreshold: 0.45,
 } as const;
 
 export function compareEmbeddings(a: number[], b: number[]): number {
@@ -12,7 +12,7 @@ export function compareEmbeddings(a: number[], b: number[]): number {
   }
   let dot = 0, normA = 0, normB = 0;
   for (let i = 0; i < a.length; i++) {
-    dot   += a[i] * b[i];
+    dot += a[i] * b[i];
     normA += a[i] * a[i];
     normB += b[i] * b[i];
   }
