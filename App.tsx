@@ -91,11 +91,14 @@ export default function App() {
               </Text>
             </View>
 
-            <View style={[styles.buttonStack, { gap: isTablet ? 24 : 16 }]}>
+            <View style={[styles.buttonStack, { gap: isTablet ? 20 : 16 }]}>
               <Pressable 
                 style={({ pressed }) => [
                   styles.largeButton, 
-                  { backgroundColor: Colors.powerOrange, height: isTablet ? 96 : 72 },
+                  { 
+                    backgroundColor: Colors.powerOrange, 
+                    height: isTablet ? 96 : 72 
+                  },
                   pressed && { backgroundColor: Colors.deepOrange, transform: [{ scale: 0.985 }] }
                 ]} 
                 onPress={() => setScreen('qr')}
@@ -106,8 +109,12 @@ export default function App() {
               <Pressable 
                 style={({ pressed }) => [
                   styles.secondaryButton, 
-                  { backgroundColor: currentTheme.surface, borderColor: Colors.steelGray, height: isTablet ? 80 : 64 },
-                  pressed && { backgroundColor: theme === 'light' ? '#F5F5F5' : '#2D2D2C', transform: [{ scale: 0.985 }] }
+                  { 
+                    backgroundColor: theme === 'light' ? '#F5F5F5' : '#2D2D2C', 
+                    borderColor: theme === 'light' ? '#E0E0E0' : 'rgba(255,255,255,0.1)',
+                    height: isTablet ? 80 : 64 
+                  },
+                  pressed && { backgroundColor: theme === 'light' ? '#EEEEEE' : '#353534', transform: [{ scale: 0.985 }] }
                 ]} 
                 onPress={() => setScreen('profile')}
               >
@@ -118,7 +125,7 @@ export default function App() {
                 style={({ pressed }) => [
                   styles.minimalButton, 
                   { 
-                    marginTop: 12,
+                    marginTop: 8,
                     backgroundColor: pressed ? (theme === 'light' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)') : 'transparent',
                     borderRadius: 12,
                   }
