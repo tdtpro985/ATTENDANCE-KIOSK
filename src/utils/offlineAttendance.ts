@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BACKEND_URL } from '../config/backend';
 
 export const OFFLINE_MODE_KEY = 'settings_offline_mode_enabled';
 export const OFFLINE_ATTENDANCE_QUEUE_KEY = 'offline_attendance_queue';
@@ -17,6 +18,9 @@ export type OfflineAttendanceItem = {
   createdAt: string;
   status: OfflineAttendanceStatus;
   errorMessage?: string | null;
+  latitude?: number;
+  longitude?: number;
+  address?: string;
 };
 
 export async function getOfflineAttendanceQueue(): Promise<OfflineAttendanceItem[]> {
@@ -82,4 +86,62 @@ export async function markOfflineAttendancePending(id: string): Promise<void> {
 export async function removeOfflineAttendanceItem(id: string): Promise<void> {
   const queue = await getOfflineAttendanceQueue();
   await saveOfflineAttendanceQueue(queue.filter((item) => item.id !== id));
+}
+
+/**
+ * Synchronizes a single offline attendance item with the backend.
+ * Only removes the item from local storage AFTER a successful response.
+ */
+export async function syncOfflineItem(item: OfflineAttendanceItem): Promise<void> {
+  await markOfflineAttendancePending(item.id);
+
+  const response = await fetch(`${BACKEND_URL}/record_attendance.php`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    },
+    body: JSON.stringify({
+      user_id: item.userId,
+      action: item.action,
+      latitude: item.latitude,
+      longitude: item.longitude,
+      address: item.address,
+    }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok || !payload?.ok) {
+    throw new Error(payload?.message || `Sync failed (${response.status})`);
+  }
+
+  await removeOfflineAttendanceItem(item.id);
+}
+
+/**
+ * Synchronizes the entire offline attendance queue with the backend.
+ * Loops through all pending and failed items.
+ */
+export async function syncOfflineQueue(): Promise<{ success: number; failed: number }> {
+  const queue = await getOfflineAttendanceQueue();
+  const candidates = queue.filter((item) => item.status === 'pending' || item.status === 'failed');
+  
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (const item of candidates) {
+    try {
+      await syncOfflineItem(item);
+      successCount++;
+    } catch (error: any) {
+      failedCount++;
+      await markOfflineAttendanceFailed(
+        item.id,
+        error?.message || 'Connection error. Please check your network settings.'
+      );
+    }
+  }
+
+  return { success: successCount, failed: failedCount };
 }

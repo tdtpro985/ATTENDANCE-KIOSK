@@ -7,7 +7,6 @@ import { useTheme, Colors } from '../../config/theme';
 
 import { TouchlessModeFeature } from './features/TouchlessModeFeature';
 import { SyncLocationFeature } from './features/SyncLocationFeature';
-import { ReportingIntervalFeature } from './features/ReportingIntervalFeature';
 import { AdminAccessFeature } from './features/AdminAccessFeature';
 import { OfflineRedundancyFeature } from './features/OfflineRedundancyFeature';
 import { ThemeSelectorFeature } from './features/ThemeSelectorFeature';
@@ -218,16 +217,15 @@ export default function Settings({ onBack }: Props) {
 
       <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
         <View style={styles.sectionContainer}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Kiosk Configuration</Text>
+          </View>
 
           <TouchlessModeFeature enabled={touchlessEnabled} onToggle={handleTouchlessChange} />
           <LivenessCheckFeature enabled={livenessEnabled} onToggle={handleLivenessChange} />
           <FaceRecogEngineFeature engine={faceEngine} onSelect={handleFaceEngineChange} />
           <SyncLocationFeature
             attendance_location={backendSettings.attendance_location}
-            saveBackendSettings={saveBackendSettings}
-          />
-          <ReportingIntervalFeature
-            currentInterval={backendSettings.attendance_interval_minutes ?? 5}
             saveBackendSettings={saveBackendSettings}
           />
           <AdminAccessFeature saveBackendSettings={saveBackendSettings} />
