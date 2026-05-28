@@ -2043,7 +2043,7 @@ export function useAttendance() {
   };
 
   const formattedTime = currentTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  const formattedDate = currentTime.toDateString();
+  const formattedDate = currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   const isClockingOut = attendanceAction === 'clock_out';
   const displayClockInTime = formatTo12Hour(clockInTime);
 

@@ -88,10 +88,6 @@ export default function QRScanView({
         <View style={styles.scannerOverlayContainer} pointerEvents="none">
           <View style={styles.qrScannerArea}>
             <View style={styles.qrFrame}>
-              <View style={[styles.corner, styles.cornerTopLeft]} />
-              <View style={[styles.corner, styles.cornerTopRight]} />
-              <View style={[styles.corner, styles.cornerBottomLeft]} />
-              <View style={[styles.corner, styles.cornerBottomRight]} />
               {qrSuccessLocal ? (
                 <MaterialCommunityIcons name="check-circle" size={100} color="#F27121" />
               ) : isQrLoading ? (
@@ -122,16 +118,6 @@ export default function QRScanView({
           <View style={styles.welcomeContainer}>
             <Text style={styles.waitingText}>Waiting for employee QR...</Text>
           </View>
-          {!touchlessEnabled && (
-            <View style={styles.footerButtons}>
-              <TouchableOpacity
-                style={[styles.mainActionButton, { backgroundColor: '#F27121', opacity: 0.6 }]}
-                disabled={true}
-              >
-                <Text style={styles.mainActionButtonText}>SCAN QR FIRST</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
       </SafeAreaView>
     </>
