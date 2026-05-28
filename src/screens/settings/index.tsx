@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, Modal } from 'react-native';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, Modal, Animated } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BACKEND_URL } from '../../config/backend';
@@ -45,11 +45,30 @@ function withAlpha(hexColor: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+let settingsHasLoadedOnce = false;
+
 export default function Settings({ onBack }: Props) {
   const { colors, theme } = useTheme();
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!settingsHasLoadedOnce);
   const [touchlessEnabled, setTouchlessEnabled] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+
+  // Shimmer animation for loading skeletons
+  const shimmerTranslate = useRef(new Animated.Value(-1)).current;
+
+  useEffect(() => {
+    if (isLoading) {
+      Animated.loop(
+        Animated.timing(shimmerTranslate, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        })
+      ).start();
+    } else {
+      shimmerTranslate.setValue(-1);
+    }
+  }, [isLoading, shimmerTranslate]);
   const [livenessEnabled, setLivenessEnabled] = useState(true);
   const [faceEngine, setFaceEngine] = useState<FaceEngine>('facepp');
   const [backendSettings, setBackendSettings] = useState<BackendSettings>({
@@ -127,6 +146,7 @@ export default function Settings({ onBack }: Props) {
       setIsOnline(false);
     } finally {
       setIsLoading(false);
+      settingsHasLoadedOnce = true;
     }
   }, [calculateStorageSize]);
 
@@ -218,11 +238,166 @@ export default function Settings({ onBack }: Props) {
   }, [onBack]);
 
   if (isLoading) {
-    return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={Colors.powerOrange} />
+    const getShimmerStyle = (width: number = 200) => ({
+      position: 'absolute' as const,
+      top: 0,
+      bottom: 0,
+      width: width,
+      backgroundColor: theme === 'light' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.08)',
+      transform: [{
+        translateX: shimmerTranslate.interpolate({
+          inputRange: [-1, 1],
+          outputRange: [-width, width]
+        })
+      }]
+    });
+
+    const SettingRowSkeleton = () => (
+      <View style={[
+        styles.rowSkeleton, 
+        { backgroundColor: colors.surface, borderColor: colors.border, overflow: 'hidden', position: 'relative' }
+      ]}>
+        <Animated.View 
+          style={[
+            styles.shimmerStreak, 
+            { 
+              transform: [{ 
+                translateX: shimmerTranslate.interpolate({
+                  inputRange: [-1, 1],
+                  outputRange: [-200, 600]
+                }) 
+              }] 
+            }
+          ]} 
+        />
+        <View style={styles.rowTextBlock}>
+          <View style={{ width: '45%', height: 22, borderRadius: 6, marginBottom: 8, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
+            <Animated.View style={getShimmerStyle(150)} />
+          </View>
+          <View style={{ width: '85%', height: 14, borderRadius: 4, marginBottom: 6, backgroundColor: theme === 'light' ? '#f3f4f6' : '#404040', overflow: 'hidden', position: 'relative' }}>
+            <Animated.View style={getShimmerStyle(300)} />
+          </View>
+          <View style={{ width: '60%', height: 14, borderRadius: 4, backgroundColor: theme === 'light' ? '#f3f4f6' : '#404040', overflow: 'hidden', position: 'relative' }}>
+            <Animated.View style={getShimmerStyle(200)} />
+          </View>
         </View>
+        <View style={{ width: 50, height: 28, borderRadius: 14, backgroundColor: theme === 'light' ? '#e5e7eb' : '#3c3c3c', overflow: 'hidden', position: 'relative' }}>
+          <Animated.View style={getShimmerStyle(50)} />
+        </View>
+      </View>
+    );
+
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+        <View style={styles.header}>
+          <Pressable
+            onPress={onBack}
+            style={[
+              styles.backButton,
+              {
+                backgroundColor: 'transparent',
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons name="chevron-left" size={32} color={colors.text} />
+          </Pressable>
+          <View style={styles.headerTitleWrap}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
+            <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+              Change how this kiosk works and manages data.
+            </Text>
+          </View>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.sectionContainer}>
+            {/* Device Options Title Skeleton */}
+            <View style={styles.sectionHeader}>
+              <View style={{ width: 140, height: 14, borderRadius: 4, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
+                <Animated.View style={getShimmerStyle(100)} />
+              </View>
+            </View>
+
+            <View style={styles.featureGrid}>
+              {[1, 2, 3, 4].map((i) => <SettingRowSkeleton key={i} />)}
+            </View>
+
+            {/* Visual Style Title Skeleton */}
+            <View style={styles.sectionHeader}>
+              <View style={{ width: 120, height: 14, borderRadius: 4, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
+                <Animated.View style={getShimmerStyle(100)} />
+              </View>
+            </View>
+            
+            <View style={[styles.themeSelectorSkeleton, { backgroundColor: colors.surface, borderColor: colors.border, overflow: 'hidden', position: 'relative' }]}>
+              <Animated.View 
+                style={[
+                  styles.shimmerStreak, 
+                  { 
+                    transform: [{ 
+                      translateX: shimmerTranslate.interpolate({
+                        inputRange: [-1, 1],
+                        outputRange: [-200, 600]
+                      }) 
+                    }] 
+                  }
+                ]} 
+              />
+              <View style={{ width: '30%', height: 16, borderRadius: 4, marginBottom: 16, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
+                <Animated.View style={getShimmerStyle(100)} />
+              </View>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                {[1, 2, 3, 4].map((i) => (
+                  <View key={i} style={{ flex: 1, height: 75, borderRadius: 16, backgroundColor: theme === 'light' ? '#f3f4f6' : '#3c3c3c', overflow: 'hidden', position: 'relative' }}>
+                    <Animated.View style={getShimmerStyle(100)} />
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            {/* Device Memory Title Skeleton */}
+            <View style={styles.sectionHeader}>
+              <View style={{ width: 155, height: 14, borderRadius: 4, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
+                <Animated.View style={getShimmerStyle(100)} />
+              </View>
+            </View>
+
+            {/* Device Storage Card Skeleton */}
+            <View style={[styles.storageCard, { backgroundColor: colors.surface, borderColor: colors.border, overflow: 'hidden', position: 'relative' }]}>
+              <Animated.View 
+                style={[
+                  styles.shimmerStreak, 
+                  { 
+                    transform: [{ 
+                      translateX: shimmerTranslate.interpolate({
+                        inputRange: [-1, 1],
+                        outputRange: [-200, 600]
+                      }) 
+                    }] 
+                  }
+                ]} 
+              />
+              <View style={styles.storageMainRow}>
+                <View style={styles.storageInfoBlock}>
+                  <View style={{ width: 90, height: 12, borderRadius: 3, marginBottom: 6, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
+                    <Animated.View style={getShimmerStyle(80)} />
+                  </View>
+                  <View style={{ width: 120, height: 28, borderRadius: 6, backgroundColor: theme === 'light' ? '#f3f4f6' : '#3c3c3c', overflow: 'hidden', position: 'relative' }}>
+                    <Animated.View style={getShimmerStyle(120)} />
+                  </View>
+                </View>
+                <View style={{ width: 110, height: 44, borderRadius: 12, backgroundColor: theme === 'light' ? '#e5e7eb' : '#3c3c3c', overflow: 'hidden', position: 'relative' }}>
+                  <Animated.View style={getShimmerStyle(110)} />
+                </View>
+              </View>
+              <View style={[styles.storageDivider, { backgroundColor: colors.border }]} />
+              <View style={{ width: '80%', height: 14, borderRadius: 4, backgroundColor: theme === 'light' ? '#f3f4f6' : '#404040', overflow: 'hidden', position: 'relative' }}>
+                <Animated.View style={getShimmerStyle(250)} />
+              </View>
+            </View>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -581,5 +756,39 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  rowSkeleton: {
+    minHeight: 110,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 28,
+    paddingVertical: 20,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  rowTextBlock: {
+    flex: 1,
+    paddingRight: 20,
+  },
+  themeSelectorSkeleton: {
+    padding: 24,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    marginTop: 8,
+  },
+  shimmerStreak: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: '100%',
+    backgroundColor: 'rgba(61, 61, 61, 0.15)',
+    zIndex: 10,
+    transform: [{ skewX: '-25deg' }],
   },
 });
