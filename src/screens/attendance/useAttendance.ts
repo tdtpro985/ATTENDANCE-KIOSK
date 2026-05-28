@@ -2042,6 +2042,24 @@ export function useAttendance() {
     }
   };
 
+  const onBypassQr = useCallback(() => {
+    const debugUser = {
+      userId: 'debug_bypass',
+      username: 'debug.bypass',
+      name: 'Debug Employee',
+      role: 'Quality Assurance',
+      department: 'HRIS Development',
+      profile_picture: null,
+      face_embedding: null,
+    };
+    setSelectedUser(debugUser);
+    setWelcomeName('Debug Employee');
+    setClockInTime('');
+    setAttendanceAction('clock_in');
+    setQrVerified(true);
+    setScanStage('idle');
+  }, []);
+
   const formattedTime = currentTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   const formattedDate = currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   const isClockingOut = attendanceAction === 'clock_out';
@@ -2058,6 +2076,6 @@ export function useAttendance() {
     touchlessEnabled, offlineModeEnabled, livenessEnabled, faceEngine, pendingSyncCount,
     scanStage, cameraVisionFaceDetected, cameraVisionReadiness, cameraVisionFaceBox, cameraVisionAllFaces, cameraVisionFaceTelemetry, successAnimationTick,
     showResultModal, modalType, modalTitle, modalMessage, modalHint, livenessMessage,
-    closeModal, handleAttendance,
+    closeModal, handleAttendance, onBypassQr, resetAttendanceFlow,
   };
 }

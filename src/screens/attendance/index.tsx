@@ -67,6 +67,7 @@ export default function AttendanceScanner({ onBack, onOpenOffline }: AttendanceP
           pendingSyncCount={state.pendingSyncCount}
           onBack={onBack}
           onOpenOffline={onOpenOffline}
+          onBypassQr={state.onBypassQr}
         />
       ) : (
         <FaceScanView
@@ -98,7 +99,7 @@ export default function AttendanceScanner({ onBack, onOpenOffline }: AttendanceP
           selectedUser={state.selectedUser}
           accentColor={state.colors.accent}
           livenessMessage={state.livenessMessage}
-          onBack={onBack}
+          onBack={state.resetAttendanceFlow}
           onOpenOffline={onOpenOffline}
           onAttendance={state.handleAttendance}
         />
