@@ -18,6 +18,7 @@ type Props = {
   pendingSyncCount: number;
   onBack: () => void;
   onOpenOffline: () => void;
+  onBypassQr: () => void;
 };
 
 export default function QRScanView({
@@ -33,6 +34,7 @@ export default function QRScanView({
   pendingSyncCount,
   onBack,
   onOpenOffline,
+  onBypassQr,
 }: Props) {
   return (
     <>
@@ -80,9 +82,9 @@ export default function QRScanView({
             <View style={styles.activeDot} />
           </View>
           <MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.4)" />
-          <View style={styles.stepPill}>
+          <TouchableOpacity style={styles.stepPill} onPress={onBypassQr}>
             <Text style={styles.stepPillText}>2. SCAN FACE</Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.scannerOverlayContainer} pointerEvents="none">
