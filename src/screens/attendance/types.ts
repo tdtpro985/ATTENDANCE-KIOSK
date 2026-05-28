@@ -13,6 +13,7 @@ export type ResolvedUser = {
   name?: string | null;
   profile_picture?: string | null;
   face?: string | null;
+  face_embedding?: string | number[] | null;
   role?: string | null;
   department?: string | null;
   open_session?: {
@@ -30,3 +31,23 @@ export type StoredAttendanceSession = {
 };
 
 export type ModalType = 'success' | 'error' | 'info' | 'warning';
+
+export type FaceScanStage =
+  | 'idle'
+  | 'detecting'
+  | 'countdown'
+  | 'capturing'
+  | 'verifying'
+  | 'recording'
+  | 'success';
+
+export type CameraVisionEyeStatus = 'open' | 'closed' | 'mixed' | 'unknown';
+
+export type CameraVisionFaceTelemetry = {
+  yaw: number | null;
+  pitch: number | null;
+  roll: number | null;
+  leftEyeOpenProbability: number | null;
+  rightEyeOpenProbability: number | null;
+  eyeStatus: CameraVisionEyeStatus;
+};
