@@ -370,6 +370,20 @@ export default function EmployeeProfileData({ onBack }: Props) {
     return Math.max(availableWidth - (gap * (cols - 1)), 0) / cols;
   }, [windowWidth]);
 
+  const getShimmerStyle = (width: number = 200) => ({
+    position: 'absolute' as const,
+    top: 0,
+    bottom: 0,
+    width: width,
+    backgroundColor: theme === 'light' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.08)',
+    transform: [{
+      translateX: shimmerTranslate.interpolate({
+        inputRange: [-1, 1],
+        outputRange: [-width, width]
+      })
+    }]
+  });
+
   const SkeletonCard = () => (
     <View style={[styles.employeeCard, { width: cardWidth, backgroundColor: colors.surface, borderColor: colors.border, overflow: 'hidden' }]}>
       <Animated.View 
@@ -385,19 +399,27 @@ export default function EmployeeProfileData({ onBack }: Props) {
           }
         ]} 
       />
-      <View style={[styles.accentStrip, { backgroundColor: colors.border, opacity: 0.3 }]} />
+      <View style={[styles.accentStrip, { backgroundColor: colors.border, opacity: 0.2 }]} />
       <View style={styles.cardContent}>
         <View style={styles.cardHeader}>
           <View style={[styles.avatarRing, { borderColor: colors.border, opacity: 0.3 }]}>
-            <View style={[styles.profileImage, { backgroundColor: theme === 'light' ? '#e5e7eb' : '#5c5c5c' }]} />
+            <View style={[styles.profileImage, { backgroundColor: theme === 'light' ? '#e5e7eb' : '#5c5c5c', overflow: 'hidden', position: 'relative' }]}>
+              <Animated.View style={getShimmerStyle(50)} />
+            </View>
           </View>
           <View style={styles.infoBlock}>
-            <View style={[styles.skeletonLine, { width: '80%', height: 20, marginBottom: 8, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242' }]} />
-            <View style={[styles.skeletonLine, { width: '50%', height: 14, backgroundColor: theme === 'light' ? '#f3f4f6' : '#404040' }]} />
+            <View style={[styles.skeletonLine, { width: '80%', height: 20, marginBottom: 8, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }]}>
+              <Animated.View style={getShimmerStyle(200)} />
+            </View>
+            <View style={[styles.skeletonLine, { width: '50%', height: 14, backgroundColor: theme === 'light' ? '#f3f4f6' : '#404040', overflow: 'hidden', position: 'relative' }]}>
+              <Animated.View style={getShimmerStyle(120)} />
+            </View>
           </View>
         </View>
         <View style={styles.cardFooter}>
-          <View style={[styles.deptBadge, { width: 80, height: 24, backgroundColor: theme === 'light' ? '#f3f4f6' : '#2f2f2f' }]} />
+          <View style={[styles.deptBadge, { width: 80, height: 24, backgroundColor: theme === 'light' ? '#f3f4f6' : '#2f2f2f', overflow: 'hidden', position: 'relative' }]}>
+            <Animated.View style={getShimmerStyle(80)} />
+          </View>
         </View>
       </View>
     </View>
@@ -508,7 +530,7 @@ export default function EmployeeProfileData({ onBack }: Props) {
       {(isRefreshing || (isLoading && employees.length === 0)) ? (
         <ScrollView contentContainerStyle={styles.list} scrollEnabled={false}>
           <View style={styles.gridContainer}>
-            {[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => <SkeletonCard key={i} />)}
           </View>
         </ScrollView>
       ) : (
