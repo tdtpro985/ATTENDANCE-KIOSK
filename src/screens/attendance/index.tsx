@@ -67,7 +67,6 @@ export default function AttendanceScanner({ onBack, onOpenOffline }: AttendanceP
           pendingSyncCount={state.pendingSyncCount}
           onBack={onBack}
           onOpenOffline={onOpenOffline}
-          onBypassQr={state.onBypassQr}
         />
       ) : (
         <FaceScanView

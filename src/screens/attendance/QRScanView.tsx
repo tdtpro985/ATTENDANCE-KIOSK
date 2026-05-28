@@ -18,7 +18,6 @@ type Props = {
   pendingSyncCount: number;
   onBack: () => void;
   onOpenOffline: () => void;
-  onBypassQr: () => void;
 };
 
 export default function QRScanView({
@@ -34,7 +33,6 @@ export default function QRScanView({
   pendingSyncCount,
   onBack,
   onOpenOffline,
-  onBypassQr,
 }: Props) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const SCAN_BOX_SIZE = 300; 
@@ -123,9 +121,9 @@ export default function QRScanView({
             <View style={styles.activeDot} />
           </View>
           <MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.4)" />
-          <TouchableOpacity style={styles.stepPill} onPress={onBypassQr}>
+          <View style={styles.stepPill}>
             <Text style={styles.stepPillText}>2. SCAN FACE</Text>
-          </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.scannerOverlayContainer} pointerEvents="none">
