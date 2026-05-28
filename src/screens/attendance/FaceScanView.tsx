@@ -7,6 +7,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  ScrollView,
   useWindowDimensions,
   Platform,
 } from 'react-native';
@@ -84,13 +85,13 @@ export default function FaceScanView({
   selectedUser,
   accentColor,
   livenessMessage,
-  showTelemetry = true,
+  showTelemetry = false,
   onBack,
   onOpenOffline,
   onAttendance,
 }: Props) {
   const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-  
+
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const [overlaySize, setOverlaySize] = useState({ width, height });
@@ -130,7 +131,7 @@ export default function FaceScanView({
 
   const getDynamicCameraStyle = () => {
     if (!requiresAndroidRotationFix) return styles.fullScreenCamera;
-    
+
     if (orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT) {
       return {
         position: 'absolute' as const,
@@ -183,8 +184,8 @@ export default function FaceScanView({
     if (box.width <= 1 && box.height <= 1) {
       const sourceFrameWidth = box.frameWidth || overlayWidth;
       const sourceFrameHeight = box.frameHeight || overlayHeight;
-      const isRotated = (sourceFrameWidth > sourceFrameHeight && overlayWidth < overlayHeight) || 
-                       (sourceFrameWidth < sourceFrameHeight && overlayWidth > overlayHeight);
+      const isRotated = (sourceFrameWidth > sourceFrameHeight && overlayWidth < overlayHeight) ||
+        (sourceFrameWidth < sourceFrameHeight && overlayWidth > overlayHeight);
 
       // 1. Native front camera preview is horizontally mirrored BEFORE CSS rotation
       let rawX = box.left;
@@ -213,9 +214,25 @@ export default function FaceScanView({
           ny = 1 - (rawX + rawW);
           nw = rawH;
           nh = rawW;
+        } else if (orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN) {
+          if (isFrontCamera) {
+            nx = rawY;
+            ny = 1 - rawX;
+          } else {
+            nx = 1 - (rawY + rawH);
+            ny = 1 - rawX;
+          }
+          nw = rawH;
+          nh = rawW;
         } else {
-          nx = rawY;
-          ny = rawX;
+          // PORTRAIT_UP / DEFAULT PORTRAIT
+          if (isFrontCamera) {
+            nx = 1 - (rawY + rawH);
+            ny = rawX;
+          } else {
+            nx = rawY;
+            ny = rawX;
+          }
           nw = rawH;
           nh = rawW;
         }
@@ -257,7 +274,7 @@ export default function FaceScanView({
 
     const minSize = 42;
     const faceSizePx = Math.max(nextPx.width, nextPx.height);
-    const uiSide = faceSizePx * 1.05;
+    const uiSide = faceSizePx * 0.85;
 
     const clampedWidth = Math.max(minSize, Math.min(overlayWidth, uiSide));
     const clampedHeight = Math.max(minSize, Math.min(overlayHeight, uiSide));
@@ -299,14 +316,14 @@ export default function FaceScanView({
       width: animatedFaceBoxWidth.value,
       height: animatedFaceBoxHeight.value,
       position: 'absolute',
-      borderWidth: 3,
-      borderRadius: 16,
+      borderWidth: 1.5,
+      borderRadius: 0,
       borderColor: isQualityPassed ? '#2ecc71' : '#F27121',
       borderStyle: 'solid',
       backgroundColor: isQualityPassed ? 'rgba(46, 204, 113, 0.15)' : 'transparent',
     };
   });
-  
+
   const showProcessingSpinner = isCapturingHardware || isVerifying || scanStage === 'capturing' || scanStage === 'verifying' || scanStage === 'recording';
   const showDetectionOverlay = isCameraVisionMode && cameraVisionFaceDetected && !!cameraVisionFaceBox && !showProcessingSpinner && scanStage !== 'success';
 
@@ -529,25 +546,29 @@ export default function FaceScanView({
     <View style={styles.splitScreenContainer}>
       <View style={[styles.leftPanel, { backgroundColor: accentColor }]}>
         <SafeAreaView style={styles.panelSafeArea} edges={['top', 'left', 'bottom']}>
-          <View style={styles.leftPanelHeader}>
-            <TouchableOpacity onPress={onBack} style={styles.headerIconButtonLight}><MaterialCommunityIcons name="chevron-left" size={28} color={accentColor} /></TouchableOpacity>
-            <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButtonLight, styles.marginLeft10]}><MaterialCommunityIcons name="history" size={22} color={accentColor} />{pendingSyncCount > 0 && <View style={styles.headerSyncBadge} />}</TouchableOpacity>
-          </View>
-          <View style={styles.profileInfoContainer}>
-            <View style={styles.profileImageContainer}>
-              {selectedUser?.profile_picture ? <Image source={{ uri: selectedUser.profile_picture }} style={styles.profileImage} /> : <View style={styles.profileImagePlaceholder}><MaterialCommunityIcons name="account" size={100} color={accentColor} /></View>}
-              {!isVerifying && !isCapturingHardware && <View style={styles.verifiedBadge}><MaterialCommunityIcons name="check-circle" size={32} color="#4ade80" /></View>}
+          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between' }} showsVerticalScrollIndicator={false}>
+            <View>
+              <View style={styles.leftPanelHeader}>
+                <TouchableOpacity onPress={onBack} style={styles.headerIconButtonLight}><MaterialCommunityIcons name="chevron-left" size={28} color={accentColor} /></TouchableOpacity>
+                <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButtonLight, styles.marginLeft10]}><MaterialCommunityIcons name="history" size={22} color={accentColor} />{pendingSyncCount > 0 && <View style={styles.headerSyncBadge} />}</TouchableOpacity>
+              </View>
+              <View style={styles.profileInfoContainer}>
+                <View style={styles.profileImageContainer}>
+                  {selectedUser?.profile_picture ? <Image source={{ uri: selectedUser.profile_picture }} style={styles.profileImage} /> : <View style={styles.profileImagePlaceholder}><MaterialCommunityIcons name="account" size={100} color={accentColor} /></View>}
+                  {!isVerifying && !isCapturingHardware && <View style={styles.verifiedBadge}><MaterialCommunityIcons name="check-circle" size={32} color="#4ade80" /></View>}
+                </View>
+                <Text style={styles.profileName}>{selectedUser?.name || selectedUser?.username || 'Employee'}</Text>
+                <Text style={styles.profileRole}>{selectedUser?.role || 'Staff Member'}</Text>
+                <Text style={styles.profileDept}>{selectedUser?.department || 'Department'}</Text>
+                {isClockingOut && clockInTime ? <View style={styles.clockInTimeContainer}><MaterialCommunityIcons name="clock-outline" size={18} color="rgba(255,255,255,0.8)" /><Text style={styles.clockInTimeText}>Clocked In at: {clockInTime}</Text></View> : null}
+              </View>
             </View>
-            <Text style={styles.profileName}>{selectedUser?.name || selectedUser?.username || 'Employee'}</Text>
-            <Text style={styles.profileRole}>{selectedUser?.role || 'Staff Member'}</Text>
-            <Text style={styles.profileDept}>{selectedUser?.department || 'Department'}</Text>
-            {isClockingOut && clockInTime ? <View style={styles.clockInTimeContainer}><MaterialCommunityIcons name="clock-outline" size={18} color="rgba(255,255,255,0.8)" /><Text style={styles.clockInTimeText}>Clocked In at: {clockInTime}</Text></View> : null}
-          </View>
-          <View style={styles.leftPanelFooter}>
-            {showProcessingSpinner ? (
-              <View style={styles.verifyingPillLeft}><ActivityIndicator size="small" color={accentColor} /><Text style={[styles.verifyingPillTextLeft, { color: accentColor }]}>{scanStage === 'capturing' ? 'Capturing...' : isClockingOut ? 'Processing Logout...' : 'Verifying Identity...'}</Text></View>
-            ) : (!touchlessEnabled && <TouchableOpacity style={[styles.mainActionButtonLeft, isClockingOut ? styles.mainActionButtonLeftClockOut : styles.mainActionButtonLeftClockIn]} onPress={onAttendance} disabled={isVerifying || isCapturingHardware}><Text style={[styles.mainActionButtonTextLeft, isClockingOut ? styles.mainActionButtonTextLeftClockOut : { color: accentColor }]}>{isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN'}</Text></TouchableOpacity>)}
-          </View>
+            <View style={styles.leftPanelFooter}>
+              {showProcessingSpinner ? (
+                <View style={styles.verifyingPillLeft}><ActivityIndicator size="small" color={accentColor} /><Text style={[styles.verifyingPillTextLeft, { color: accentColor }]}>{scanStage === 'capturing' ? 'Capturing...' : isClockingOut ? 'Processing Logout...' : 'Verifying Identity...'}</Text></View>
+              ) : (!touchlessEnabled && <TouchableOpacity style={[styles.mainActionButtonLeft, isClockingOut ? styles.mainActionButtonLeftClockOut : styles.mainActionButtonLeftClockIn]} onPress={onAttendance} disabled={isVerifying || isCapturingHardware}><Text style={[styles.mainActionButtonTextLeft, isClockingOut ? styles.mainActionButtonTextLeftClockOut : { color: accentColor }]}>{isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN'}</Text></TouchableOpacity>)}
+            </View>
+          </ScrollView>
         </SafeAreaView>
       </View>
       <View style={styles.rightPanel} onLayout={handleOverlayLayout}>

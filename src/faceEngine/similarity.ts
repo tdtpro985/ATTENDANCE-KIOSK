@@ -11,15 +11,15 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
 
 /**
  * Verify a live embedding against a stored embedding.
- * buffalo_sc threshold guide:
- *   0.20 → very lenient (more false positives)
- *   0.28 → recommended default
- *   0.35 → strict (more false rejections)
+ * buffalo_sc threshold guide (Updated May 2026):
+ *   0.35 -> lenient
+ *   0.42 -> moderate
+ *   0.52 -> strict (recommended standard)
  */
 export function verifyFace(
   liveEmbedding: Float32Array,
   storedEmbedding: Float32Array,
-  threshold = 0.28
+  threshold = 0.52
 ): { verified: boolean; score: number } {
   const score = cosineSimilarity(liveEmbedding, storedEmbedding);
   return { verified: score >= threshold, score };

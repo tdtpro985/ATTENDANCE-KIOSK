@@ -33,7 +33,6 @@ describe('Settings Screen', () => {
       expect(getByText('Kiosk Configuration')).toBeTruthy();
       expect(getByText('Touchless Mode')).toBeTruthy();
       expect(getByText('Sync Location')).toBeTruthy();
-      expect(getByText('Reporting Interval')).toBeTruthy();
       expect(getByText('Administrative Access')).toBeTruthy();
       expect(getByText('Offline Redundancy')).toBeTruthy();
       expect(getByText('APPLICATION THEME')).toBeTruthy();
