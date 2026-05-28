@@ -31,7 +31,7 @@ if (!$userId) {
 
 // Fetch HQ image (compressed to 480p for modal)
 $select = 'log_id,username,profile_picture';
-$path = "rest/v1/accounts?select={$select}&log_id=eq.{$userId}";
+$path = "rest/v1/accounts?select=" . urlencode($select) . "&log_id=eq." . urlencode($userId);
 
 [$status, $rows, $err] = supabase_request('GET', $path);
 

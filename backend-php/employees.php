@@ -33,7 +33,7 @@ $detailId = isset($_GET['detail_id']) ? $_GET['detail_id'] : null;
 if ($detailId) {
     // 1. Fetch Metadata first (NO IMAGE here to keep this response tiny)
     $select = 'emp_id,name,role,dept_id,log_id,departments(name)';
-    $path = "rest/v1/employees?select={$select}&emp_id=eq.{$detailId}";
+    $path = "rest/v1/employees?select=" . urlencode($select) . "&emp_id=eq." . urlencode((string)$detailId);
     
     [$status, $data, $err] = supabase_request('GET', $path);
     
@@ -47,7 +47,7 @@ if ($detailId) {
 
         // 2. Fetch Image separately ONLY if user was found
         if ($logId) {
-            $imgPath = "rest/v1/accounts?select=profile_picture&log_id=eq.{$logId}";
+            $imgPath = "rest/v1/accounts?select=profile_picture&log_id=eq." . urlencode((string)$logId);
             [$imgStatus, $imgRows, $imgErr] = supabase_request('GET', $imgPath);
             
             if (is_array($imgRows) && count($imgRows) > 0) {
