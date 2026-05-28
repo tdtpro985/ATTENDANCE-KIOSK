@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   View,
+  Image,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,6 +26,7 @@ interface HistoryItem {
   id: string;
   name: string;
   username: string;
+  profilePicture?: string;
   action: 'clock_in' | 'clock_out';
   time: string;
   date: string;
@@ -348,7 +350,11 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                     ]}
                   >
                     <View style={[styles.standardAvatar, { backgroundColor: withAlpha(colors.accent, 0.1) }]}>
-                      <Text style={[styles.historyAvatarText, { color: colors.accent }]}>{getInitials(displayName)}</Text>
+                      {item.profilePicture ? (
+                        <Image source={{ uri: item.profilePicture }} style={styles.avatarImage} />
+                      ) : (
+                        <Text style={[styles.historyAvatarText, { color: colors.accent }]}>{getInitials(displayName)}</Text>
+                      )}
                     </View>
                     <View style={styles.standardContent}>
                       <View style={styles.standardTopRow}>
@@ -506,6 +512,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   standardContent: {
     flex: 1,
@@ -598,7 +609,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
