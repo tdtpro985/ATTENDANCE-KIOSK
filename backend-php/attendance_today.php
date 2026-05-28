@@ -7,7 +7,7 @@ date_default_timezone_set('Asia/Manila');
 $today = date('Y-m-d');
 
 // Fetch today's attendance with joined employee and account info
-$select = 'att_id,emp_id,timein,timeout,date,employees(name,log_id,accounts(username))';
+$select = 'att_id,emp_id,timein,timeout,date,employees(name,log_id,accounts(username,profile_picture))';
 $path = "rest/v1/attendance?select=" . urlencode($select) . "&date=eq.{$today}&order=att_id.desc";
 
 [$status, $data, $err] = supabase_request('GET', $path);
@@ -30,6 +30,7 @@ if (is_array($data)) {
             'userId' => $emp['log_id'] ?? $row['emp_id'],
             'name' => $emp['name'] ?? 'Unknown',
             'username' => $acc['username'] ?? 'N/A',
+            'profilePicture' => $acc['profile_picture'] ?? null,
             'action' => $row['timeout'] ? 'clock_out' : 'clock_in',
             'time' => $row['timeout'] ?: $row['timein'],
             'date' => $row['date']
