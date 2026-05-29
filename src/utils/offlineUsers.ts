@@ -93,7 +93,7 @@ export async function cacheProfilePictureOnDisk(userId: string, remoteUrl: strin
   try {
     const fileExtension = remoteUrl.split('.').pop()?.split('?')[0] || 'jpg';
     const localFilename = `profile_${userId}.${fileExtension}`;
-    const localUri = `${FileSystem.cacheDirectory}${localFilename}`;
+    const localUri = `${(FileSystem as any).cacheDirectory}${localFilename}`;
 
     // Download standard 500x500px resolution profile photo directly to device cache
     const downloadResult = await FileSystem.downloadAsync(remoteUrl, localUri);
@@ -112,7 +112,7 @@ export async function deleteCachedProfilePicture(userId: string): Promise<void> 
   try {
     const extensions = ['jpg', 'jpeg', 'png'];
     for (const ext of extensions) {
-      const localUri = `${FileSystem.cacheDirectory}profile_${userId}.${ext}`;
+      const localUri = `${(FileSystem as any).cacheDirectory}profile_${userId}.${ext}`;
       const info = await FileSystem.getInfoAsync(localUri);
       if (info.exists) {
         await FileSystem.deleteAsync(localUri, { idempotent: true });
@@ -193,7 +193,7 @@ export async function saveOfflineUserCache(users: CachedOfflineUser[]): Promise<
   const keys = mmkv.getAllKeys();
   const indexKeys = keys.filter(k => k.startsWith('user_by_id:') || k.startsWith('user_by_qr:'));
   for (const key of indexKeys) {
-    mmkv.delete(key);
+    mmkv.remove(key);
   }
 
   for (const user of users) {
@@ -208,7 +208,7 @@ export async function clearOfflineUserCache(): Promise<void> {
   const keys = mmkv.getAllKeys();
   const indexKeys = keys.filter(k => k.startsWith('user_by_id:') || k.startsWith('user_by_qr:'));
   for (const key of indexKeys) {
-    mmkv.delete(key);
+    mmkv.remove(key);
   }
 }
 
@@ -236,7 +236,7 @@ export function mapEmployeesToOfflineUsers(data: EmployeePayloadRow[]): CachedOf
         profile_picture: remoteUrl,
         profile_picture_remote: remoteUrl,
         qrCode: account?.qr_code ?? null,
-        face_embedding: account?.face_embedding ?? employee.face_embedding ?? null,
+        face_embedding: (account as any)?.face_embedding ?? (employee as any).face_embedding ?? null,
       };
     })
     .filter((u): u is CachedOfflineUser => u !== null);
@@ -257,11 +257,11 @@ export async function updateOfflineUserCacheFromEmployees(data: EmployeePayloadR
         try {
           const user = JSON.parse(userRaw) as CachedOfflineUser;
           if (user.qrCode) {
-            mmkv.delete(`user_by_qr:${user.qrCode}`);
+            mmkv.remove(`user_by_qr:${user.qrCode}`);
           }
         } catch {}
       }
-      mmkv.delete(key);
+      mmkv.remove(key);
       await deleteCachedProfilePicture(userId);
     }
   }
