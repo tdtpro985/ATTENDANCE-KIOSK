@@ -266,7 +266,7 @@ export function useAttendance() {
   const NETWORK_TOAST_COOLDOWN_MS = 15000;
   const FACEPP_TOUCHLESS_COUNTDOWN_SECONDS = 3;
   const CAMERA_VISION_STABLE_FACE_FRAMES = 3;
-  const CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY = 90;
+  const CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY = 65;
   const CAMERA_VISION_MANUAL_MIN_READINESS_TO_VERIFY = 30;
   const CAMERA_VISION_GATE_LOG_COOLDOWN_MS = 2000;
 
@@ -1888,21 +1888,17 @@ export function useAttendance() {
     if (!touchlessEnabled || !qrVerified) return;
     if (faceEngine !== 'facepp') return;
     if (isVerifying || faceProcessingRef.current || showResultModal || modalVisibleRef.current) return;
-    if (countdownActive || faceCountdown > 0 || faceppCountdownStartedRef.current) return;
+    if (faceppCountdownStartedRef.current) return;
+    
     faceppCountdownStartedRef.current = true;
-    setFaceCountdown(FACEPP_TOUCHLESS_COUNTDOWN_SECONDS);
-    countdownRef.current = FACEPP_TOUCHLESS_COUNTDOWN_SECONDS;
-    setCountdownActive(true);
-    setScanStage('countdown');
-    setLivenessMessage(`Capturing in ${FACEPP_TOUCHLESS_COUNTDOWN_SECONDS}...`);
-  }, [countdownActive, faceCountdown, faceEngine, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+    setScanStage('capturing');
+    handleAttendance();
+  }, [faceEngine, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
 
   useEffect(() => {
     if (!touchlessEnabled || !qrVerified) return;
     if (faceEngine !== 'camera_vision') return;
     if (isVerifying || faceProcessingRef.current || showResultModal || modalVisibleRef.current) return;
-
-    if (countdownActive) return;
 
     setScanStage('detecting');
     const autoReadinessThreshold = CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY;
@@ -1912,12 +1908,9 @@ export function useAttendance() {
       cameraVisionReadiness >= autoReadinessThreshold &&
       !cameraVisionAutoTriggeredRef.current
     ) {
-      setFaceCountdown(0.5);
-      countdownRef.current = 0.5;
-      setCountdownActive(true);
-      setScanStage('countdown');
-      setLivenessMessage('Capturing...');
       cameraVisionAutoTriggeredRef.current = true;
+      setScanStage('capturing');
+      handleAttendance();
       return;
     }
 
@@ -1926,15 +1919,8 @@ export function useAttendance() {
       cameraVisionReadiness < Math.max(12, autoReadinessThreshold - 15)
     ) {
       cameraVisionAutoTriggeredRef.current = false;
-      if (countdownActive) {
-        setCountdownActive(false);
-        setFaceCountdown(0);
-        countdownRef.current = 0;
-        setScanStage('detecting');
-      }
     }
   }, [
-    countdownActive,
     cameraVisionFaceDetected,
     cameraVisionReadiness,
     faceEngine,
@@ -1952,7 +1938,7 @@ export function useAttendance() {
       countdownRef.current = 0;
       setCountdownActive(false);
     }
-  }, [countdownActive, faceCountdown, faceEngine]);
+  }, [faceEngine]);
 
   useEffect(() => {
     touchlessEnabledRef.current = touchlessEnabled;
