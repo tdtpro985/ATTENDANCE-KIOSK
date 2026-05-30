@@ -15,7 +15,6 @@ import { useTheme } from '../../config/theme';
 import { compareEmbeddings, compareMultiAngleEmbeddings, isMatch, MODEL_CONFIG } from '../../utils/face-embedding';
 import { loadFaceModel, getEmbedding, isModelLoaded } from '../../faceEngine/model';
 import { rgbaBufferToCHWTensor } from '../../faceEngine/preprocess';
-import type { FaceEngine } from '../settings/features/FaceRecogEngineFeature';
 import {
   ATTENDANCE_SESSIONS_KEY,
   TOUCHLESS_SETTING_KEY,
@@ -264,8 +263,7 @@ export function useAttendance() {
   const { colors } = useTheme();
   const NETWORK_TIMEOUT_MS = 2500;
   const NETWORK_TOAST_COOLDOWN_MS = 15000;
-  const FACEPP_TOUCHLESS_COUNTDOWN_SECONDS = 3;
-  const CAMERA_VISION_STABLE_FACE_FRAMES = 3;
+    const CAMERA_VISION_STABLE_FACE_FRAMES = 3;
   const CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY = 65;
   const CAMERA_VISION_MANUAL_MIN_READINESS_TO_VERIFY = 30;
   const CAMERA_VISION_GATE_LOG_COOLDOWN_MS = 2000;
@@ -296,10 +294,8 @@ export function useAttendance() {
   const identityStatusRef = useRef<'idle' | 'pending' | 'passed' | 'failed'>('idle');
   const livenessStatusRef = useRef<'idle' | 'pending' | 'passed'>('idle');
   const livenessScoreRef = useRef<number | null>(null);
-  const faceppCountdownStartedRef = useRef(false);
-  const cameraVisionAutoTriggeredRef = useRef(false);
+    const cameraVisionAutoTriggeredRef = useRef(false);
   const touchlessEnabledRef = useRef(false);
-  const faceEngineRef = useRef<FaceEngine>('facepp');
   const lastCameraVisionGateLogRef = useRef(0);
 
   // Shared Values (moved up to avoid use-before-declaration)
@@ -356,7 +352,6 @@ export function useAttendance() {
   const [touchlessEnabled, setTouchlessEnabled] = useState(false);
   const [offlineModeEnabled, setOfflineModeEnabled] = useState(false);
   const [livenessEnabled, setLivenessEnabled] = useState(true);
-  const [faceEngine, setFaceEngine] = useState<FaceEngine>('facepp');
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [scanStage, setScanStage] = useState<FaceScanStage>('idle');
   const [cameraVisionFaceDetected, setCameraVisionFaceDetected] = useState(false);
@@ -451,8 +446,7 @@ export function useAttendance() {
         setFaceCountdown(0);
         countdownRef.current = 0;
         setCountdownActive(false);
-        faceppCountdownStartedRef.current = false;
-        cameraVisionAutoTriggeredRef.current = false;
+                cameraVisionAutoTriggeredRef.current = false;
         stableFaceFrames.value = 0;
         setCameraVisionFaceDetected(false);
         setCameraVisionReadiness(0);
@@ -468,8 +462,7 @@ export function useAttendance() {
         setFaceCountdown(0);
         countdownRef.current = 0;
         setCountdownActive(false);
-        faceppCountdownStartedRef.current = false;
-        cameraVisionAutoTriggeredRef.current = false;
+                cameraVisionAutoTriggeredRef.current = false;
         stableFaceFrames.value = 0;
         setCameraVisionFaceDetected(false);
         setCameraVisionReadiness(0);
@@ -481,7 +474,6 @@ export function useAttendance() {
         livenessScoreRef.current = null;
         if (
           touchlessEnabledRef.current &&
-          faceEngineRef.current === 'camera_vision' &&
           attendanceAction === 'clock_in' &&
           qrVerified
         ) {
@@ -551,8 +543,7 @@ export function useAttendance() {
     modalContextRef.current = 'other';
     lastScanRef.current = { data: null, ts: 0 };
     touchlessTriggeredRef.current = false;
-    faceppCountdownStartedRef.current = false;
-    cameraVisionAutoTriggeredRef.current = false;
+        cameraVisionAutoTriggeredRef.current = false;
     stableFaceFrames.value = 0;
     setCameraVisionFaceDetected(false);
     setCameraVisionReadiness(0);
@@ -585,25 +576,21 @@ export function useAttendance() {
     const mapped = Object.fromEntries(entries);
     const touchless = mapped[TOUCHLESS_SETTING_KEY] === 'true';
     const liveness = mapped['settings_liveness_enabled'] !== 'false';
-    const engine: FaceEngine = mapped['settings_face_engine'] === 'camera_vision' ? 'camera_vision' : 'facepp';
     touchlessEnabledRef.current = touchless;
-    faceEngineRef.current = engine;
     setTouchlessEnabled(touchless);
     setLivenessEnabled(liveness);
-    setFaceEngine(engine);
     sharedTouchlessEnabled.value = touchless;
     sharedLivenessEnabled.value = liveness;
-    sharedFaceEngineIsCameraVision.value = engine === 'camera_vision';
-    return { touchless, liveness, engine };
-  }, [sharedTouchlessEnabled, sharedLivenessEnabled, sharedFaceEngineIsCameraVision]);
+    sharedFaceEngineIsCameraVision.value = true;
+    return { touchless, liveness };
+  }, [sharedTouchlessEnabled, sharedLivenessEnabled]);
 
   // QR resolve
   const resolveUserFromQr = useCallback(async (qrData: string): Promise<ResolvedUser> => {
     try {
       // FORCE SYNC: Add timestamp to URL to bypass any server/proxy cache
       const timestamp = Date.now();
-      const currentEngine = faceEngineRef.current;
-      const response = await fetch(`${BACKEND_URL}/resolve_qr.php?qr=${encodeURIComponent(qrData)}&engine=${currentEngine}&_t=${timestamp}`, {
+      const response = await fetch(`${BACKEND_URL}/resolve_qr.php?qr=${encodeURIComponent(qrData)}&engine=camera_vision&_t=${timestamp}`, {
         headers: { 
           'Accept': 'application/json', 
           'ngrok-skip-browser-warning': 'true',
@@ -684,68 +671,6 @@ export function useAttendance() {
     }
   }, [offlineModeEnabled, isLikelyConnectivityError, showOfflineToast]);
 
-  // Face verify
-  const verifyFace = async (photoUri1: string, photoUri2?: string) => {
-    let userId = null;
-    try { userId = await AsyncStorage.getItem('userId'); } catch { }
-    if (!userId) throw new Error('User not logged in (missing userId). Please log in again.');
-    console.log('[Verify] Sending face to backend', sanitizeForLog({
-      userId,
-      isSendingSecondPhoto: !!photoUri2,
-      face_reference: selectedUserRef.current?.face
-    }));
-    const form = new FormData();
-    form.append('photo', { uri: photoUri1, name: 'selfie_1.jpg', type: 'image/jpeg' } as any);
-    if (photoUri2) form.append('photo_liveness', { uri: photoUri2, name: 'selfie_2.jpg', type: 'image/jpeg' } as any);
-    form.append('clock_time', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    form.append('user_id', userId);
-    form.append('engine', faceEngineRef.current);
-    
-    // Add client-side active liveness score if available
-    if (livenessScoreRef.current !== null) {
-      form.append('liveness_score', livenessScoreRef.current.toFixed(4));
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 28000);
-    const response = await fetch(`${BACKEND_URL}/verify.php`, { method: 'POST', body: form, headers: { Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' }, signal: controller.signal });
-    clearTimeout(timeoutId);
-    const responseText = await response.text();
-    console.log('[Verify] Raw response', response.status, responseText?.slice?.(0, 200));
-    let json: any = {};
-    try { json = responseText ? JSON.parse(responseText) : {}; } catch { throw new Error(`Server returned invalid response. Status: ${response.status}`); }
-    if (response.status === 401 && json.message) {
-      if (json.message.includes('Liveness')) {
-        console.log('[Verify] Liveness Failure', sanitizeForLog(json));
-      } else {
-        console.log('[Verify] Identity Mismatch', sanitizeForLog(json));
-      }
-      if (json.captured_faces_count != null || json.reference_faces_count != null) {
-        console.log(`[Verify] Debug Info: Faces detected in Live Capture: ${json.captured_faces_count ?? 0}, Faces detected in Database Reference: ${json.reference_faces_count ?? 0}`);
-      }
-      return { ok: false, verified: false, message: json.message, hint: json.hint, match_score: json.match_score, threshold: json.threshold, liveness_score: json.liveness_score };
-    }
-    if (!response.ok || !json.ok) {
-      let errorMsg = json.message || 'Verification failed';
-      if (json.detail) errorMsg += `\n\nDetail: ${json.detail}`;
-      if (json.hint) errorMsg += `\n\n${json.hint}`;
-      throw new Error(errorMsg);
-    }
-    return json;
-  };
-
-  const runVerification = useCallback(async () => {
-    if (!cameraRef.current) throw new Error('Camera not ready');
-    const photo1 = await cameraRef.current.takePhoto({ 
-      flash: 'off',
-      enableAutoRedEyeReduction: true,
-    });
-    if (!photo1?.path) throw new Error('No image captured');
-
-    if (offlineModeEnabled) return { ok: true, verified: true, offlineCaptured: true, message: 'Face photos captured offline.', photoUri: `file://${photo1.path}` };
-    return verifyFace(`file://${photo1.path}`);
-  }, [offlineModeEnabled]);
-
 
   // Photo-based embedding capture: takes a photo, decodes JPEG, runs buffalo_sc ONNX inference.
   const captureEmbeddingFromPhoto = useCallback(async (): Promise<number[]> => {
@@ -753,6 +678,7 @@ export function useAttendance() {
     if (!isModelLoaded()) throw new Error('Face model not loaded');
 
     console.log('[CameraVision] Taking photo for embedding (buffalo_sc ONNX)...');
+    if(!cameraRef.current) throw new Error('Camera not ready');
     const photo = await cameraRef.current.takePhoto({ flash: 'off' });
     if (!photo?.path) throw new Error('No image captured');
 
@@ -889,7 +815,6 @@ export function useAttendance() {
     return normalized;
   }, [cameraVisionFaceBox]);
 
-  // Sync comparator — receives the already-captured live embedding from the frame processor
   const verifyFaceViaAPI = useCallback(async (liveEmbedding: number[]): Promise<{ ok: boolean; verified: boolean; message?: string; hint?: string; similarity?: number } | null> => {
     try {
       const userId = selectedUserRef.current?.userId;
@@ -898,7 +823,7 @@ export function useAttendance() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(`${BACKEND_URL}/verify_face_api.php`, {
+      const response = await fetch(`${BACKEND_URL}/verify_embedding.php`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' },
         body: JSON.stringify({ log_id: userId, live_embedding: liveEmbedding }),
@@ -907,17 +832,18 @@ export function useAttendance() {
       clearTimeout(timeoutId);
 
       const json = await response.json();
-      console.log(`[Face Verification API] Response:`, { verified: json.verified, similarity: json.similarity, threshold: json.threshold, angle_count: json.angle_count, best_angle: json.best_angle_index });
+      const isVerified = json.verified === true || json.is_match === true;
+      console.log(`[Face Verification API] Response:`, { verified: isVerified, similarity: json.similarity, threshold: json.threshold, angle_count: json.angle_count, best_angle: json.best_angle_index });
 
       if (json.ok === false && json.message) {
         return { ok: false, verified: false, message: json.message, hint: json.hint };
       }
 
       return {
-        ok: json.verified === true,
-        verified: json.verified === true,
-        message: json.verified ? undefined : `Face does not match. Similarity: ${((json.similarity || 0) * 100).toFixed(0)}%`,
-        hint: json.verified ? undefined : 'Ensure good lighting and face the camera directly.',
+        ok: isVerified,
+        verified: isVerified,
+        message: isVerified ? undefined : `Face does not match. Similarity: ${((json.similarity || 0) * 100).toFixed(0)}%`,
+        hint: isVerified ? undefined : 'Ensure good lighting and face the camera directly.',
         similarity: json.similarity,
       };
     } catch (err: any) {
@@ -1159,85 +1085,64 @@ export function useAttendance() {
     let result: any;
 
     try {
-      if (faceEngine === 'camera_vision') {
-        const captureStart = Date.now();
-        let liveEmbedding: number[] | null = null;
-        let bestScore = -1;
-        let lastError: any = null;
+      const captureStart = Date.now();
+      let liveEmbedding: number[] | null = null;
+      let bestScore = -1;
+      let lastError: any = null;
 
-        // Pre-parse stored embedding for quick scoring between shots
-        const storedRaw = selectedUserRef.current?.face_embedding;
-        let parsedStored: number[] | number[][] | null = null;
-        if (storedRaw) {
-          try { parsedStored = Array.isArray(storedRaw) ? storedRaw : JSON.parse(storedRaw as string); } catch {}
-        }
+      // Pre-parse stored embedding for quick scoring between shots
+      const storedRaw = selectedUserRef.current?.face_embedding;
+      let parsedStored: number[] | number[][] | null = null;
+      if (storedRaw) {
+        try { parsedStored = Array.isArray(storedRaw) ? storedRaw : JSON.parse(storedRaw as string); } catch {}
+      }
 
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          try {
-            const embedding = await captureEmbeddingFromPhoto();
-            if (parsedStored) {
-              const r = compareMultiAngleEmbeddings(embedding, parsedStored);
-              if (r.maxSimilarity > bestScore) {
-                bestScore = r.maxSimilarity;
-                liveEmbedding = embedding;
-              }
-              // First shot already clear pass — skip second (Only if similarity score > 0.92, otherwise proceed to 2nd shot)
-              if (bestScore >= 0.92 && attempt === 1) {
-                console.log(`[CameraVision] Shot 1 scored well (${(bestScore * 100).toFixed(1)}% >= 92%), skipping shot 2.`);
-                break;
-              }
-            } else {
-              if (!liveEmbedding) liveEmbedding = embedding;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const embedding = await captureEmbeddingFromPhoto();
+          if (parsedStored) {
+            const r = compareMultiAngleEmbeddings(embedding, parsedStored);
+            if (r.maxSimilarity > bestScore) {
+              bestScore = r.maxSimilarity;
+              liveEmbedding = embedding;
+            }
+            // First shot already clear pass — skip second (Only if similarity score > 0.92, otherwise proceed to 2nd shot)
+            if (bestScore >= 0.92 && attempt === 1) {
+              console.log(`[CameraVision] Shot 1 scored well (${(bestScore * 100).toFixed(1)}% >= 92%), skipping shot 2.`);
               break;
             }
-            if (attempt < 2) await new Promise(r => setTimeout(r, 200));
-          } catch (err) {
-            console.log(`[CameraVision] Photo capture attempt ${attempt} failed:`, err);
-            lastError = err;
-            if (attempt < 2) await new Promise(r => setTimeout(r, 100));
-          }
-        }
-        if (!liveEmbedding) throw lastError || new Error('Failed to capture face embedding');
-        
-        captureDuration = Date.now() - captureStart;
-        setIsCapturingHardware(false);
-
-        const compareStart = Date.now();
-        // Try API verification first (authoritative server-side check), fall back to local
-        if (!offlineModeEnabled) {
-          const apiResult = await verifyFaceViaAPI(liveEmbedding);
-          if (apiResult !== null) {
-            result = apiResult;
-            methodUsed = 'API (Camera Vision)';
           } else {
-            result = verifyFaceLocal(liveEmbedding);
-            methodUsed = 'Local Fallback (Camera Vision)';
+            if (!liveEmbedding) liveEmbedding = embedding;
+            break;
           }
+          if (attempt < 2) await new Promise(r => setTimeout(r, 200));
+        } catch (err) {
+          console.log(`[CameraVision] Photo capture attempt ${attempt} failed:`, err);
+          lastError = err;
+          if (attempt < 2) await new Promise(r => setTimeout(r, 100));
+        }
+      }
+      if (!liveEmbedding) throw lastError || new Error('Failed to capture face embedding');
+      
+      captureDuration = Date.now() - captureStart;
+      setIsCapturingHardware(false);
+
+      const compareStart = Date.now();
+      // Try API verification first (authoritative server-side check), fall back to local
+      if (!offlineModeEnabled) {
+        const apiResult = await verifyFaceViaAPI(liveEmbedding);
+        if (apiResult !== null) {
+          result = apiResult;
+          methodUsed = 'API (Camera Vision)';
         } else {
           result = verifyFaceLocal(liveEmbedding);
-          methodUsed = 'Local Offline (Camera Vision)';
+          methodUsed = 'Local Fallback (Camera Vision)';
         }
-        compareDuration = Date.now() - compareStart;
       } else {
-        const captureStart = Date.now();
-        // Face++ or offline photo capture
-        if (!cameraRef.current) throw new Error('Camera not ready');
-        const photo1 = await cameraRef.current.takePhoto({ flash: 'off', enableAutoRedEyeReduction: true });
-        captureDuration = Date.now() - captureStart;
-        setIsCapturingHardware(false);
-        if (!photo1?.path) throw new Error('No image captured');
-        const photoUri = `file://${photo1.path}`;
-
-        const compareStart = Date.now();
-        if (offlineModeEnabled) {
-          result = { ok: true, verified: true, offlineCaptured: true, message: 'Face photos captured offline.', photoUri };
-          methodUsed = 'Offline Photo Capture (Face++)';
-        } else {
-          result = await verifyFace(photoUri);
-          methodUsed = 'API (Face++)';
-        }
-        compareDuration = Date.now() - compareStart;
+        result = verifyFaceLocal(liveEmbedding);
+        methodUsed = 'Local Offline (Camera Vision)';
       }
+      compareDuration = Date.now() - compareStart;
     } catch (e: any) {
       setIsCapturingHardware(false);
       faceProcessingRef.current = false; // reset so touchless can auto-retry
@@ -1295,7 +1200,7 @@ export function useAttendance() {
       const showOfflineError = offlineModeEnabled || isLikelyConnectivityError(e);
       showModal('error', showOfflineError ? 'Offline Mode Error' : 'Connection Error', e?.message || 'Please try again.', showOfflineError ? 'Connect once to refresh employee QR cache.' : 'Check your internet connection', 2000);
     }
-  }, [qrVerified, faceEngine, offlineModeEnabled, verifyFace, verifyFaceLocal, captureEmbeddingFromPhoto, executeAttendanceRecording, showModal, flashAnim, isLikelyConnectivityError, workletPhase]);
+  }, [qrVerified, offlineModeEnabled, verifyFaceLocal, captureEmbeddingFromPhoto, executeAttendanceRecording, showModal, flashAnim, isLikelyConnectivityError, workletPhase]);
 
   // Main attendance handler (Concurrent Phase 1 & 2)
   const handleAttendance = useCallback(async () => {
@@ -1313,7 +1218,7 @@ export function useAttendance() {
       return;
     }
 
-    if (faceEngine === 'camera_vision' && !offlineModeEnabled) {
+    if (!offlineModeEnabled) {
       const minReadiness = touchlessEnabled
         ? CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY
         : CAMERA_VISION_MANUAL_MIN_READINESS_TO_VERIFY;
@@ -1349,23 +1254,19 @@ export function useAttendance() {
       // Skip active liveness: start verifying face immediately
       await executeFaceVerification();
     }
-  }, [attendanceAction, touchlessEnabled, hasPermission, isLikelyConnectivityError, livenessEnabled, offlineModeEnabled, qrVerified, showModal, workletPhase, executeAttendanceRecording, faceEngine, cameraVisionFaceDetected, cameraVisionReadiness, logCameraVisionGateSkip, executeFaceVerification]);
+  }, [attendanceAction, touchlessEnabled, hasPermission, isLikelyConnectivityError, livenessEnabled, offlineModeEnabled, qrVerified, showModal, workletPhase, executeAttendanceRecording, cameraVisionFaceDetected, cameraVisionReadiness, logCameraVisionGateSkip, executeFaceVerification]);
 
   const onFaceDetectedForIdentity = Worklets.createRunOnJS(() => {
     if (!touchlessEnabledRef.current || modalVisibleRef.current || !qrVerified || countdownRef.current > 0 || countdownActive || faceProcessingRef.current || isVerifying) return;
-    if (faceEngineRef.current === 'facepp') return;
-    if (faceEngineRef.current === 'camera_vision') {
+    if (false) return;
+    {
       setScanStage('detecting');
       return;
     }
   });
-
   const onTouchlessFaceLost = Worklets.createRunOnJS(() => {
     if (!touchlessEnabledRef.current || faceProcessingRef.current || isVerifying) return;
-    if (faceEngineRef.current === 'facepp' && faceppCountdownStartedRef.current) return;
-    if (faceEngineRef.current === 'camera_vision') {
-      cameraVisionAutoTriggeredRef.current = false;
-    }
+    cameraVisionAutoTriggeredRef.current = false;
     setLivenessMessage('Face the camera directly');
   });
 
@@ -1434,7 +1335,6 @@ export function useAttendance() {
       }
     }
     if (
-      faceEngineRef.current === 'camera_vision' &&
       qrVerified &&
       !isVerifying &&
       !faceProcessingRef.current &&
@@ -1675,7 +1575,7 @@ export function useAttendance() {
       const currentSettings = await applyScannerSettings().catch(() => ({
         touchless: touchlessEnabledRef.current,
         liveness: livenessEnabled,
-        engine: faceEngineRef.current,
+        engine: 'camera_vision',
       }));
       console.log('[QR] Scanned', data);
       
@@ -1702,13 +1602,13 @@ export function useAttendance() {
         setIsQrLoading(false);
 
         // Check if we have the necessary offline data to do a fast-path face verify
-        const hasNeededFaceData = currentSettings.engine === 'camera_vision' 
+        const hasNeededFaceData = true 
           ? !!cachedUser.face_embedding 
           : true; // Face++ sends the live photo to backend, backend fetches stored face
 
         // If we are missing the embedding locally, we CANNOT auto-trigger handleAttendance yet.
         // We must wait for the background sync to finish fetching it!
-        const shouldWaitSync = currentSettings.touchless && currentSettings.engine === 'camera_vision' && !hasNeededFaceData;
+        const shouldWaitSync = currentSettings.touchless && true && !hasNeededFaceData;
 
         // Show the success checkmark for 600ms before transitioning
         setTimeout(async () => {
@@ -1727,10 +1627,9 @@ export function useAttendance() {
             countdownRef.current = 0;
             livenessTriggeredRef.current = false;
             touchlessTriggeredRef.current = false;
-            faceppCountdownStartedRef.current = false;
-            stableFaceFrames.value = 0;
+                        stableFaceFrames.value = 0;
             setCountdownActive(false);
-            if (currentSettings.touchless && currentSettings.engine === 'camera_vision') {
+            if (currentSettings.touchless && true) {
               if (!shouldWaitSync) {
                 setScanStage('detecting');
               } else {
@@ -1811,10 +1710,9 @@ export function useAttendance() {
         countdownRef.current = 0;
         livenessTriggeredRef.current = false;
         touchlessTriggeredRef.current = false;
-        faceppCountdownStartedRef.current = false;
-        stableFaceFrames.value = 0;
+                stableFaceFrames.value = 0;
         setCountdownActive(false);
-        if (currentSettings.touchless && currentSettings.engine === 'camera_vision') {
+        if (currentSettings.touchless && true) {
           setScanStage('detecting');
         } else {
           setScanStage('idle');
@@ -1864,40 +1762,37 @@ export function useAttendance() {
   useEffect(() => {
     if (!countdownActive || !qrVerified || isVerifying) return;
     if (faceCountdown <= 0) return;
-    const interval = faceEngine === 'camera_vision' ? 500 : 1000;
-    const step = faceEngine === 'camera_vision' ? 0.5 : 1;
+    const interval = 500;
+    const step = 0.5;
     const timer = setTimeout(() => {
       const next = Math.max(0, faceCountdown - step);
       setFaceCountdown(next);
       countdownRef.current = next;
     }, interval);
     return () => clearTimeout(timer);
-  }, [countdownActive, qrVerified, isVerifying, faceCountdown, faceEngine]);
+  }, [countdownActive, qrVerified, isVerifying, faceCountdown]);
 
   useEffect(() => {
     if (!countdownActive || !touchlessEnabled || !qrVerified) return;
     if (showResultModal || modalVisibleRef.current) return;
     if (faceCountdown > 0 || isVerifying || faceProcessingRef.current) return;
     setCountdownActive(false);
-    faceppCountdownStartedRef.current = false;
-    setScanStage('capturing');
+        setScanStage('capturing');
     handleAttendance();
-  }, [countdownActive, faceCountdown, faceEngine, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+  }, [countdownActive, faceCountdown, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
 
   useEffect(() => {
     if (!touchlessEnabled || !qrVerified) return;
-    if (faceEngine !== 'facepp') return;
+    return;
     if (isVerifying || faceProcessingRef.current || showResultModal || modalVisibleRef.current) return;
-    if (faceppCountdownStartedRef.current) return;
-    
-    faceppCountdownStartedRef.current = true;
-    setScanStage('capturing');
+        
+        setScanStage('capturing');
     handleAttendance();
-  }, [faceEngine, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+  }, [handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
 
   useEffect(() => {
     if (!touchlessEnabled || !qrVerified) return;
-    if (faceEngine !== 'camera_vision') return;
+    
     if (isVerifying || faceProcessingRef.current || showResultModal || modalVisibleRef.current) return;
 
     setScanStage('detecting');
@@ -1923,7 +1818,6 @@ export function useAttendance() {
   }, [
     cameraVisionFaceDetected,
     cameraVisionReadiness,
-    faceEngine,
     handleAttendance,
     isVerifying,
     qrVerified,
@@ -1932,13 +1826,12 @@ export function useAttendance() {
   ]);
 
   useEffect(() => {
-    faceppCountdownStartedRef.current = false;
-    if (countdownRef.current > 0 || countdownActive || faceCountdown > 0) {
+        if (countdownRef.current > 0 || countdownActive || faceCountdown > 0) {
       setFaceCountdown(0);
       countdownRef.current = 0;
       setCountdownActive(false);
     }
-  }, [faceEngine]);
+  }, []);
 
   useEffect(() => {
     touchlessEnabledRef.current = touchlessEnabled;
@@ -1946,11 +1839,9 @@ export function useAttendance() {
   }, [touchlessEnabled]);
 
   useEffect(() => {
-    faceEngineRef.current = faceEngine;
-    sharedFaceEngineIsCameraVision.value = faceEngine === 'camera_vision';
-    lastCameraVisionReadinessSent.value = -1;
+            lastCameraVisionReadinessSent.value = -1;
     lastCameraVisionDetectedSent.value = false;
-  }, [faceEngine]);
+  }, []);
 
   useEffect(() => {
     if (!qrVerified) {
@@ -2054,7 +1945,7 @@ export function useAttendance() {
     formattedTime, formattedDate,
     isLoading, isVerifying, isQrLoading, isClockingOut, isCapturingHardware: uiCapturingHardware,
     qrVerified, qrSuccessLocal, selectedUser, clockInTime: displayClockInTime, faceCountdown,
-    touchlessEnabled, offlineModeEnabled, livenessEnabled, faceEngine, pendingSyncCount,
+    touchlessEnabled, offlineModeEnabled, livenessEnabled, pendingSyncCount,
     scanStage, cameraVisionFaceDetected, cameraVisionReadiness, cameraVisionFaceBox, cameraVisionAllFaces, cameraVisionFaceTelemetry, successAnimationTick,
     showResultModal, modalType, modalTitle, modalMessage, modalHint, livenessMessage,
     closeModal, handleAttendance, resetAttendanceFlow,

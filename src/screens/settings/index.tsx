@@ -12,7 +12,6 @@ import { AdminAccessFeature } from './features/AdminAccessFeature';
 import { OfflineRedundancyFeature } from './features/OfflineRedundancyFeature';
 import { ThemeSelectorFeature } from './features/ThemeSelectorFeature';
 import { LivenessCheckFeature } from './features/LivenessCheckFeature';
-import { FaceRecogEngineFeature, type FaceEngine } from './features/FaceRecogEngineFeature';
 import { SettingRow } from './components/SettingRow';
 
 const TOUCHLESS_SETTING_KEY = 'settings_touchless_enabled';
@@ -70,7 +69,6 @@ export default function Settings({ onBack }: Props) {
     }
   }, [isLoading, shimmerTranslate]);
   const [livenessEnabled, setLivenessEnabled] = useState(true);
-  const [faceEngine, setFaceEngine] = useState<FaceEngine>('facepp');
   const [backendSettings, setBackendSettings] = useState<BackendSettings>({
     attendance_location: {
       latitude: 14.6130261,
@@ -115,7 +113,7 @@ export default function Settings({ onBack }: Props) {
   const loadSettings = useCallback(async () => {
     try {
       const [settingsEntries, response] = await Promise.all([
-        AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, 'settings_liveness_enabled', 'settings_face_engine']),
+        AsyncStorage.multiGet([TOUCHLESS_SETTING_KEY, 'settings_liveness_enabled']),
         fetch(`${BACKEND_URL}/settings.php`, {
           headers: {
             Accept: 'application/json',
@@ -127,7 +125,6 @@ export default function Settings({ onBack }: Props) {
       const localSettings = Object.fromEntries(settingsEntries);
       setTouchlessEnabled(localSettings[TOUCHLESS_SETTING_KEY] === 'true');
       setLivenessEnabled(localSettings['settings_liveness_enabled'] !== 'false');
-      setFaceEngine((localSettings['settings_face_engine'] as FaceEngine) || 'facepp');
 
       calculateStorageSize();
 
@@ -190,14 +187,6 @@ export default function Settings({ onBack }: Props) {
     }
   }, []);
 
-  const handleFaceEngineChange = useCallback(async (value: FaceEngine) => {
-    setFaceEngine(value);
-    try {
-      await AsyncStorage.setItem('settings_face_engine', value);
-    } catch {
-      setFaceEngine(value === 'facepp' ? 'camera_vision' : 'facepp');
-    }
-  }, []);
 
   const saveBackendSettings = useCallback(async (body: Record<string, any>) => {
     const response = await fetch(`${BACKEND_URL}/settings.php`, {
@@ -434,7 +423,6 @@ export default function Settings({ onBack }: Props) {
           <View style={styles.featureGrid}>
             <TouchlessModeFeature enabled={touchlessEnabled} onToggle={handleTouchlessChange} />
             <LivenessCheckFeature enabled={livenessEnabled} onToggle={handleLivenessChange} />
-            <FaceRecogEngineFeature engine={faceEngine} onSelect={handleFaceEngineChange} />
             <SyncLocationFeature
               attendance_location={backendSettings.attendance_location}
               saveBackendSettings={saveBackendSettings}

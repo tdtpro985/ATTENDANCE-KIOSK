@@ -113,6 +113,7 @@ echo json_encode([
     'similarity' => $maxSimilarity,
     'threshold' => $matchThreshold,
     'is_match' => $isMatch,
+    'verified' => $isMatch,
     'decision' => $isMatch ? 'PASS' : 'FAIL',
     'angle_count' => count($angleEmbeddings),
     'best_angle_index' => $bestAngleIndex,

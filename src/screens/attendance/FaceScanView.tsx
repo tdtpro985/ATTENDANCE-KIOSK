@@ -19,7 +19,6 @@ import AnimatedReanimated, { useAnimatedStyle, useSharedValue, withTiming } from
 import { styles } from './style/FaceScanViewStyle';
 import { useTheme } from '../../config/theme';
 import type { ResolvedUser } from './types';
-import type { FaceEngine } from '../settings/features/FaceRecogEngineFeature';
 import type { CameraVisionFaceTelemetry, FaceScanStage } from './types';
 
 type Props = {
@@ -37,7 +36,6 @@ type Props = {
   touchlessEnabled: boolean;
   offlineModeEnabled: boolean;
   livenessEnabled: boolean;
-  faceEngine: FaceEngine;
   scanStage: FaceScanStage;
   cameraVisionFaceDetected: boolean;
   cameraVisionReadiness: number;
@@ -72,7 +70,6 @@ export default function FaceScanView({
   touchlessEnabled,
   offlineModeEnabled,
   livenessEnabled,
-  faceEngine,
   scanStage,
   cameraVisionFaceDetected,
   cameraVisionReadiness,
@@ -132,13 +129,13 @@ export default function FaceScanView({
     ]).start();
   }, [scanStage, successAnimationTick, successScale]);
 
-  const isCameraVisionMode = faceEngine === 'camera_vision';
+  const isCameraVisionMode = true;
   const isFrontCamera = device?.position === 'front';
   const detectionPercent = Math.max(0, Math.min(100, Math.round(cameraVisionReadiness)));
   const overlayWidth = overlaySize.width > 0 ? overlaySize.width : (isLandscape ? Math.round(width * 0.6) : width);
   const overlayHeight = overlaySize.height > 0 ? overlaySize.height : height;
 
-  const requiresAndroidRotationFix = Platform.OS === 'android' && (livenessEnabled || faceEngine === 'camera_vision');
+  const requiresAndroidRotationFix = Platform.OS === 'android';
 
   const getDynamicCameraStyle = () => {
     if (!requiresAndroidRotationFix) return styles.fullScreenCamera;
