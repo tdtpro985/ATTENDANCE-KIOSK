@@ -84,7 +84,6 @@ export default function AttendanceScanner({ onBack, onOpenOffline }: AttendanceP
           touchlessEnabled={state.touchlessEnabled}
           offlineModeEnabled={state.offlineModeEnabled}
           livenessEnabled={state.livenessEnabled}
-          faceEngine={state.faceEngine}
           scanStage={state.scanStage}
           cameraVisionFaceDetected={state.cameraVisionFaceDetected}
           cameraVisionReadiness={state.cameraVisionReadiness}
