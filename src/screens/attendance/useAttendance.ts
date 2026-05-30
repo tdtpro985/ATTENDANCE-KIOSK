@@ -263,7 +263,7 @@ export function useAttendance() {
   const { colors } = useTheme();
   const NETWORK_TIMEOUT_MS = 2500;
   const NETWORK_TOAST_COOLDOWN_MS = 15000;
-    const CAMERA_VISION_STABLE_FACE_FRAMES = 3;
+    const CAMERA_VISION_STABLE_FACE_FRAMES = 8;
   const CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY = 65;
   const CAMERA_VISION_MANUAL_MIN_READINESS_TO_VERIFY = 30;
   const CAMERA_VISION_GATE_LOG_COOLDOWN_MS = 2000;
@@ -815,7 +815,7 @@ export function useAttendance() {
     return normalized;
   }, [cameraVisionFaceBox]);
 
-  const verifyFaceViaAPI = useCallback(async (liveEmbedding: number[]): Promise<{ ok: boolean; verified: boolean; message?: string; hint?: string; similarity?: number } | null> => {
+  const verifyFaceViaAPI = useCallback(async (liveEmbedding: number[]): Promise<{ ok: boolean; verified: boolean; message?: string; hint?: string; similarity?: number; angle_count?: number; best_angle_index?: number; agreeing_angles?: number } | null> => {
     try {
       const userId = selectedUserRef.current?.userId;
       if (!userId) return null;
@@ -836,15 +836,18 @@ export function useAttendance() {
       console.log(`[Face Verification API] Response:`, { verified: isVerified, similarity: json.similarity, threshold: json.threshold, angle_count: json.angle_count, best_angle: json.best_angle_index });
 
       if (json.ok === false && json.message) {
-        return { ok: false, verified: false, message: json.message, hint: json.hint };
+        return { ok: false, verified: false, message: json.message, hint: json.hint, similarity: json.similarity, angle_count: json.angle_count, best_angle_index: json.best_angle_index ?? json.best_angle, agreeing_angles: json.agreeing_angles };
       }
 
       return {
         ok: isVerified,
         verified: isVerified,
-        message: isVerified ? undefined : `Face does not match. Similarity: ${((json.similarity || 0) * 100).toFixed(0)}%`,
-        hint: isVerified ? undefined : 'Ensure good lighting and face the camera directly.',
+        message: isVerified ? undefined : (json.message || `Face does not match. Similarity: ${((json.similarity || 0) * 100).toFixed(0)}%`),
+        hint: isVerified ? undefined : (json.hint || 'Ensure good lighting and face the camera directly.'),
         similarity: json.similarity,
+        angle_count: json.angle_count,
+        best_angle_index: json.best_angle_index ?? json.best_angle,
+        agreeing_angles: json.agreeing_angles,
       };
     } catch (err: any) {
       console.log('[Face Verification API] Unavailable, falling back to local:', err?.message);
@@ -852,7 +855,7 @@ export function useAttendance() {
     }
   }, []);
 
-  const verifyFaceLocal = useCallback((liveEmbedding: number[]): { ok: boolean; verified: boolean; message?: string; hint?: string; similarity?: number } => {
+  const verifyFaceLocal = useCallback((liveEmbedding: number[]): { ok: boolean; verified: boolean; message?: string; hint?: string; similarity?: number; angle_count?: number; best_angle_index?: number; agreeing_angles?: number } => {
     console.log('[Face Verification] === LOCAL VERIFICATION START ===');
     console.log(`[Face Verification] Target Employee: ${selectedUserRef.current?.name || 'Unknown'} (Username: ${selectedUserRef.current?.username || 'N/A'}, ID: ${selectedUserRef.current?.userId || 'N/A'})`);
     if (!isValidEmbeddingVector(liveEmbedding)) {
@@ -911,8 +914,20 @@ export function useAttendance() {
     console.log(`[Face Verification] Match Verdict: ${isMatched ? '✅ [PASS]' : '❌ [FAIL]'}`);
     console.log('[Face Verification] === LOCAL VERIFICATION END ===');
 
-    if (isMatched) return { ok: true, verified: true, similarity: result.maxSimilarity };
-    return { ok: false, verified: false, similarity: result.maxSimilarity, message: `Face does not match. Similarity: ${(result.maxSimilarity * 100).toFixed(0)}%`, hint: 'Ensure good lighting and face the camera directly.' };
+    const ret = {
+      ok: isMatched,
+      verified: isMatched,
+      similarity: result.maxSimilarity,
+      angle_count: result.angleCount,
+      best_angle_index: result.bestAngleIndex,
+      agreeing_angles: agreeingAngles,
+    };
+    if (isMatched) return ret;
+    return {
+      ...ret,
+      message: `Face does not match. Similarity: ${(result.maxSimilarity * 100).toFixed(0)}%`,
+      hint: 'Ensure good lighting and face the camera directly.',
+    };
   }, []);
 
   const logCameraVisionGateSkip = useCallback((reason: string, details?: Record<string, unknown>) => {
@@ -1128,20 +1143,9 @@ export function useAttendance() {
       setIsCapturingHardware(false);
 
       const compareStart = Date.now();
-      // Try API verification first (authoritative server-side check), fall back to local
-      if (!offlineModeEnabled) {
-        const apiResult = await verifyFaceViaAPI(liveEmbedding);
-        if (apiResult !== null) {
-          result = apiResult;
-          methodUsed = 'API (Camera Vision)';
-        } else {
-          result = verifyFaceLocal(liveEmbedding);
-          methodUsed = 'Local Fallback (Camera Vision)';
-        }
-      } else {
-        result = verifyFaceLocal(liveEmbedding);
-        methodUsed = 'Local Offline (Camera Vision)';
-      }
+      // Perform authoritative comparison locally to eliminate network latency (<1ms)
+      result = verifyFaceLocal(liveEmbedding);
+      methodUsed = 'Local (Camera Vision)';
       compareDuration = Date.now() - compareStart;
     } catch (e: any) {
       setIsCapturingHardware(false);
@@ -1170,6 +1174,13 @@ export function useAttendance() {
         console.log(`📈 Score:       ${(scoreVal * 100).toFixed(2)}% (Threshold: ${(MODEL_CONFIG.matchThreshold * 100).toFixed(0)}%)`);
       } else {
         console.log(`📈 Score:       N/A`);
+      }
+      if (result?.angle_count != null) {
+        console.log(`📐 Angles:      ${result.angle_count} profiles (Best angle: #${result.best_angle_index})`);
+        console.log(`🤝 Agreement:   ${result.agreeing_angles ?? 0} matching angles (At least 2 required)`);
+        if (!isSuccess && scoreVal >= MODEL_CONFIG.matchThreshold) {
+          console.log(`⚠️ Reason:      Failed multi-angle alignment check (less than 2 angles matched above sub-threshold)`);
+        }
       }
       console.log('--------------------------------------------------');
       console.log('Performance Details:');
@@ -1414,9 +1425,16 @@ export function useAttendance() {
         }
 
         if (workletPhase.value === 0) {
-          if (detectedFace) {
+          const isUsable = detectedFace && isFaceBoxUsableForRecognition(detectedFace.box, detectedFace.sourceFace);
+          if (isUsable) {
             stableFaceFrames.value = Math.min(stableFaceFrames.value + 1, CAMERA_VISION_STABLE_FACE_FRAMES);
+          } else {
+            if (stableFaceFrames.value !== 0) {
+              stableFaceFrames.value = Math.max(0, stableFaceFrames.value - 1);
+            }
+          }
 
+          if (detectedFace) {
             if (sharedFaceEngineIsCameraVision.value) {
               const readinessPercent = Math.min(
                 100,
