@@ -109,13 +109,8 @@ $isMatch = $maxSimilarity >= $matchThreshold && $top2Agrees;
 $message = null;
 $hint = null;
 if (!$isMatch) {
-    if ($maxSimilarity >= $matchThreshold && !$top2Agrees) {
-        $message = "Multi-angle validation failed (only $agreeingAngles of 2 required angles matched above sub-threshold).";
-        $hint = "Face the camera directly so multiple registered angles can verify your identity.";
-    } else {
-        $message = "Face did not match.";
-        $hint = "Ensure good lighting and face the camera directly.";
-    }
+    $message = "Verification failed.";
+    $hint = "Please try again.";
 }
 
 echo json_encode([

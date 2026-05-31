@@ -50,6 +50,7 @@ type Props = {
   accentColor: string;
   livenessMessage: string;
   showTelemetry?: boolean;
+  showResultModal?: boolean;
   onBack: () => void;
   onOpenOffline: () => void;
   onAttendance: () => void;
@@ -84,6 +85,7 @@ export default function FaceScanView({
   accentColor,
   livenessMessage,
   showTelemetry = false,
+  showResultModal = false,
   onBack,
   onOpenOffline,
   onAttendance,
@@ -195,15 +197,11 @@ export default function FaceScanView({
       const isRotated = (sourceFrameWidth > sourceFrameHeight && overlayWidth < overlayHeight) ||
         (sourceFrameWidth < sourceFrameHeight && overlayWidth > overlayHeight);
 
-      // 1. Native front camera preview is horizontally mirrored BEFORE CSS rotation
+      // 1. Raw face coordinates from detector
       let rawX = box.left;
       let rawY = box.top;
       let rawW = box.width;
       let rawH = box.height;
-
-      if (isFrontCamera) {
-        rawX = 1 - (rawX + rawW);
-      }
 
       // 2. Apply math rotation to perfectly match the CSS rotation
       let nx = rawX;
@@ -223,30 +221,25 @@ export default function FaceScanView({
           nw = rawH;
           nh = rawW;
         } else if (orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN) {
-          if (isFrontCamera) {
-            nx = rawY;
-            ny = 1 - rawX;
-          } else {
-            nx = 1 - (rawY + rawH);
-            ny = 1 - rawX;
-          }
+          nx = 1 - (rawY + rawH);
+          ny = 1 - rawX;
           nw = rawH;
           nh = rawW;
         } else {
           // PORTRAIT_UP / DEFAULT PORTRAIT
-          if (isFrontCamera) {
-            nx = 1 - (rawY + rawH);
-            ny = rawX;
-          } else {
-            nx = rawY;
-            ny = rawX;
-          }
+          nx = rawY;
+          ny = isFrontCamera ? 1 - (rawX + rawW) : rawX;
           nw = rawH;
           nh = rawW;
         }
       } else if (orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN) {
         nx = 1 - (rawX + rawW);
         ny = 1 - (rawY + rawH);
+      }
+
+      // 3. Apply horizontal mirroring in screen space for front camera
+      if (isFrontCamera) {
+        nx = 1 - (nx + nw);
       }
 
       const orientedFrameWidth = isRotated ? sourceFrameHeight : sourceFrameWidth;
@@ -317,23 +310,22 @@ export default function FaceScanView({
   }, [cameraVisionFaceBox, overlayWidth, overlayHeight, isFrontCamera, fallbackFaceBoxPx]);
 
   const animatedFaceBoxStyle = useAnimatedStyle(() => {
-    const isQualityPassed = cameraVisionReadiness >= 100;
     return {
       left: animatedFaceBoxLeft.value,
       top: animatedFaceBoxTop.value,
       width: animatedFaceBoxWidth.value,
       height: animatedFaceBoxHeight.value,
       position: 'absolute',
-      borderWidth: 1.5,
+      borderWidth: 1.0,
       borderRadius: 0,
-      borderColor: isQualityPassed ? '#2ecc71' : '#F27121',
+      borderColor: '#ffffff',
       borderStyle: 'solid',
-      backgroundColor: isQualityPassed ? 'rgba(46, 204, 113, 0.15)' : 'transparent',
+      backgroundColor: 'transparent',
     };
   });
 
   const showProcessingSpinner = isCapturingHardware || isVerifying || scanStage === 'capturing' || scanStage === 'verifying' || scanStage === 'recording';
-  const showDetectionOverlay = isCameraVisionMode && cameraVisionFaceDetected && !!cameraVisionFaceBox && !showProcessingSpinner && scanStage !== 'success';
+  const showDetectionOverlay = isCameraVisionMode && cameraVisionFaceDetected && !!cameraVisionFaceBox && !showProcessingSpinner && scanStage !== 'success' && !showResultModal;
 
   const animatedStatusCardStyle = useAnimatedStyle(() => {
     const cardHeight = 74;
@@ -385,10 +377,22 @@ export default function FaceScanView({
   const yawLabel = getYawLabel(cameraVisionFaceTelemetry?.yaw);
   const pitchLabel = getPitchLabel(cameraVisionFaceTelemetry?.pitch);
 
+  const isFaceStraight = (() => {
+    if (!cameraVisionFaceTelemetry) return true;
+    const yaw = cameraVisionFaceTelemetry.yaw;
+    const pitch = cameraVisionFaceTelemetry.pitch;
+    if (typeof yaw === 'number' && (yaw > 12 || yaw < -12)) return false;
+    if (typeof pitch === 'number' && (pitch > 12 || pitch < -12)) return false;
+    return true;
+  })();
+
   const instructionText = (() => {
     if (scanStage === 'success') return 'FACE VERIFIED';
     if (showProcessingSpinner) return isClockingOut ? 'PROCESSING LOGOUT...' : 'VERIFYING IDENTITY...';
-    if (isCameraVisionMode && scanStage === 'detecting') return cameraVisionFaceDetected ? `FACE READY ${detectionPercent}%` : 'SEARCHING FOR FACE...';
+    if (isCameraVisionMode && scanStage === 'detecting') {
+      if (!cameraVisionFaceDetected) return 'SEARCHING FOR FACE...';
+      return isFaceStraight ? `FACE READY ${detectionPercent}%` : 'PLEASE LOOK STRAIGHT TO THE CAMERA';
+    }
     if (faceCountdown > 0 && touchlessEnabled) return `GET READY... ${faceCountdown}`;
     return 'LOOK AT THE CAMERA';
   })();
@@ -396,7 +400,19 @@ export default function FaceScanView({
   const hintText = (() => {
     if (scanStage === 'success') return 'Success';
     if (showProcessingSpinner) return 'Please wait...';
-    if (isCameraVisionMode && scanStage === 'detecting') return cameraVisionFaceDetected ? `Hold steady for automatic capture • Eyes: ${eyeStatusLabel}` : 'Center your face in the frame';
+    if (isCameraVisionMode && scanStage === 'detecting') {
+      if (!cameraVisionFaceDetected) return 'Center your face in the frame';
+      if (!isFaceStraight) {
+        const yaw = cameraVisionFaceTelemetry?.yaw;
+        const pitch = cameraVisionFaceTelemetry?.pitch;
+        if (typeof yaw === 'number' && yaw > 12) return 'Turn your face slightly to the right';
+        if (typeof yaw === 'number' && yaw < -12) return 'Turn your face slightly to the left';
+        if (typeof pitch === 'number' && pitch > 12) return 'Lower your chin slightly';
+        if (typeof pitch === 'number' && pitch < -12) return 'Raise your chin slightly';
+        return 'Look directly at the camera';
+      }
+      return 'Hold steady for automatic capture';
+    }
     if (faceCountdown > 0) return 'Position your face';
     return livenessMessage;
   })();
@@ -436,7 +452,6 @@ export default function FaceScanView({
           <AnimatedReanimated.View style={[styles.detectionStatusCard, animatedStatusCardStyle]}>
             <Text style={styles.detectionStatusText}>Horizontal: {yawLabel}</Text>
             <Text style={styles.detectionStatusText}>Vertical: {pitchLabel}</Text>
-            <Text style={styles.detectionStatusText}>Eyes: {eyeStatusLabel}</Text>
           </AnimatedReanimated.View>
         )}
       </View>
@@ -507,9 +522,7 @@ export default function FaceScanView({
           <ActivityIndicator size={80} color="#F27121" style={styles.faceIconBackground} />
         ) : (faceCountdown > 0 && touchlessEnabled) ? (
           <Text style={styles.countdownText}>{faceCountdown}</Text>
-        ) : (
-          <MaterialCommunityIcons name="face-recognition" size={120} color="rgba(255,255,255,0.2)" style={styles.faceIconBackground} />
-        )}
+        ) : null}
       </View>
       <Text style={isRight ? styles.scanInstructionTextRight : styles.scanInstructionText}>{instructionText}</Text>
       <Text style={isRight ? styles.faceHintTextRight : styles.faceHintText}>{hintText}</Text>

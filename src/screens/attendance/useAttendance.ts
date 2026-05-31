@@ -688,8 +688,16 @@ export function useAttendance() {
     let imageToProcess = `file://${photo.path}`;
 
     if (faceBox) {
-      const photoW = photo.width;
-      const photoH = photo.height;
+      // 1. Resolve actual decoded dimensions from ImageManipulator
+      let photoW = photo.width;
+      let photoH = photo.height;
+      try {
+        const info = await ImageManipulator.manipulateAsync(imageToProcess, [], {});
+        photoW = info.width;
+        photoH = info.height;
+      } catch (err) {
+        console.warn('[CameraVision] Failed to get image dimensions:', err);
+      }
       
       // Determine if the frame is rotated relative to the physical photo
       const frameW = faceBox.frameWidth || (photoW > photoH ? 1280 : 720);
@@ -925,8 +933,8 @@ export function useAttendance() {
     if (isMatched) return ret;
     return {
       ...ret,
-      message: `Face does not match. Similarity: ${(result.maxSimilarity * 100).toFixed(0)}%`,
-      hint: 'Ensure good lighting and face the camera directly.',
+      message: 'Verification failed.',
+      hint: 'Please try again.',
     };
   }, []);
 

@@ -97,6 +97,7 @@ export default function AttendanceScanner({ onBack, onOpenOffline }: AttendanceP
           selectedUser={state.selectedUser}
           accentColor={state.colors.accent}
           livenessMessage={state.livenessMessage}
+          showResultModal={state.showResultModal}
           onBack={state.resetAttendanceFlow}
           onOpenOffline={onOpenOffline}
           onAttendance={state.handleAttendance}
