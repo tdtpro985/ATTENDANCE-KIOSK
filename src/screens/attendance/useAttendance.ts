@@ -679,7 +679,11 @@ export function useAttendance() {
 
     console.log('[CameraVision] Taking photo for embedding (buffalo_sc ONNX)...');
     if(!cameraRef.current) throw new Error('Camera not ready');
-    const photo = await cameraRef.current.takePhoto({ flash: 'off' });
+    const photo = await cameraRef.current.takePhoto({
+      flash: 'off',
+      enableShutterSound: false,
+      enableAutoRedEyeReduction: false,
+    });
     if (!photo?.path) throw new Error('No image captured');
 
     const faceBox = cameraVisionFaceBox;
@@ -1129,9 +1133,17 @@ export function useAttendance() {
               bestScore = r.maxSimilarity;
               liveEmbedding = embedding;
             }
-            // First shot already clear pass — skip second (Only if similarity score > 0.92, otherwise proceed to 2nd shot)
-            if (bestScore >= 0.92 && attempt === 1) {
-              console.log(`[CameraVision] Shot 1 scored well (${(bestScore * 100).toFixed(1)}% >= 92%), skipping shot 2.`);
+            
+            // Check if this shot is already a clear pass under local verification thresholds
+            const threshold = MODEL_CONFIG.matchThreshold;
+            const subThreshold = MODEL_CONFIG.subThreshold;
+            const agreeingAngles = r.perAngleScores.filter((s: number) => s >= subThreshold).length;
+            const top2Required = r.angleCount >= 3;
+            const top2Agrees = !top2Required || agreeingAngles >= 2;
+            const isMatched = r.maxSimilarity >= threshold && top2Agrees;
+
+            if (isMatched && attempt === 1) {
+              console.log(`[CameraVision] Shot 1 is a clear pass (${(r.maxSimilarity * 100).toFixed(1)}% >= ${(threshold * 100).toFixed(0)}%), skipping shot 2.`);
               break;
             }
           } else {
