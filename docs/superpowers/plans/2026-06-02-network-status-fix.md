@@ -1,3 +1,25 @@
+# Network Status Optimization Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Fix the false offline status by increasing timeout, adding cache busting, optimizing the request, and preventing spam.
+
+**Architecture:** Modifies `useNetworkStatus.ts` to use a global throttle check, increases timeout to 8s, and uses `HEAD` request with cache busting.
+
+**Tech Stack:** React Native, TypeScript
+
+---
+
+### Task 1: Refactor `useNetworkStatus.ts`
+
+**Files:**
+- Modify: `src/hooks/useNetworkStatus.ts`
+
+- [ ] **Step 1: Write the updated implementation**
+
+Update `useNetworkStatus.ts` with the new logic:
+
+```typescript
 import { useState, useEffect, useCallback } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import { BACKEND_URL } from '../config/backend';
@@ -5,6 +27,7 @@ import { BACKEND_URL } from '../config/backend';
 // Global state to prevent spamming the backend
 let globalLastCheckTime = 0;
 let globalLastResult = true;
+let globalIsChecking = false;
 let globalCheckPromise: Promise<boolean> | null = null;
 
 export function useNetworkStatus() {
@@ -40,6 +63,7 @@ export function useNetworkStatus() {
         return result;
       }
 
+      globalIsChecking = true;
       globalCheckPromise = (async () => {
         try {
           const controller = new AbortController();
@@ -63,6 +87,7 @@ export function useNetworkStatus() {
           globalLastCheckTime = Date.now();
           return false;
         } finally {
+          globalIsChecking = false;
           globalCheckPromise = null;
         }
       })();
@@ -97,3 +122,6 @@ export function useNetworkStatus() {
 
   return { isConnected, hasGoodInternet, isChecking, checkStatus };
 }
+```
+
+- [ ] **Step 2: Mark task complete (no commit per user instructions)**
