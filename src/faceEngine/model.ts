@@ -1,7 +1,7 @@
 import { InferenceSession, Tensor } from 'onnxruntime-react-native';
 import { Platform } from 'react-native';
 import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
 
 let session: InferenceSession | null = null;
 
@@ -15,13 +15,13 @@ export async function loadFaceModel(): Promise<void> {
     throw new Error('Failed to resolve local URI for model asset.');
   }
 
-  const destPath = `${FileSystem.documentDirectory}w600k_mbf.onnx`;
-  const fileInfo = await FileSystem.getInfoAsync(destPath);
-  if (!fileInfo.exists) {
-    await FileSystem.copyAsync({ from: asset.localUri, to: destPath });
+  const file = new File(Paths.document, 'w600k_mbf.onnx');
+  if (!file.exists) {
+    const sourceFile = new File(asset.localUri);
+    sourceFile.copy(file);
   }
 
-  const cleanPath = destPath.replace('file://', '');
+  const cleanPath = file.uri.replace('file://', '');
   session = await InferenceSession.create(cleanPath);
 
   console.log('[FaceEngine] buffalo_sc ONNX model loaded');
