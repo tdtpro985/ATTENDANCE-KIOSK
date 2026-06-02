@@ -203,7 +203,7 @@ export default function FaceScanView({
       let rawW = box.width;
       let rawH = box.height;
 
-      // 2. Apply math rotation to perfectly match the CSS rotation
+      // 2. Map coordinates to screen space
       let nx = rawX;
       let ny = rawY;
       let nw = rawW;
@@ -226,9 +226,9 @@ export default function FaceScanView({
           nw = rawH;
           nh = rawW;
         } else {
-          // PORTRAIT_UP / DEFAULT PORTRAIT
+          // PORTRAIT_UP: 90° CW rotation from landscape sensor to portrait screen
           nx = rawY;
-          ny = isFrontCamera ? 1 - (rawX + rawW) : rawX;
+          ny = rawX;
           nw = rawH;
           nh = rawW;
         }
