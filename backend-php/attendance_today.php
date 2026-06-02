@@ -1,6 +1,9 @@
 <?php
 header('Access-Control-Allow-Origin: *');
 header('Content-Type: application/json; charset=UTF-8');
+header('Cache-Control: no-cache, no-store, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
 require_once __DIR__ . '/connect.php';
 
 date_default_timezone_set('Asia/Manila');
@@ -31,6 +34,8 @@ if (is_array($data)) {
             'name' => $emp['name'] ?? 'Unknown',
             'username' => $acc['username'] ?? 'N/A',
             'profilePicture' => $acc['profile_picture'] ?? null,
+            'timein' => $row['timein'],
+            'timeout' => $row['timeout'],
             'action' => $row['timeout'] ? 'clock_out' : 'clock_in',
             'time' => $row['timeout'] ?: $row['timein'],
             'date' => $row['date']

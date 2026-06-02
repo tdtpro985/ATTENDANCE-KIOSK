@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BACKEND_URL } from '../config/backend';
 import { Colors, useTheme } from '../config/theme';
 import {
@@ -19,6 +20,7 @@ import {
   syncOfflineQueue,
   type OfflineAttendanceItem,
 } from '../utils/offlineAttendance';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 
 const APP_VERSION = 'v1.0.41';
 
@@ -30,6 +32,8 @@ interface HistoryItem {
   action: 'clock_in' | 'clock_out';
   time: string;
   date: string;
+  timein?: string | null;
+  timeout?: string | null;
 }
 
 type Props = {
@@ -97,13 +101,24 @@ function formatTimeDisplay(rawTime?: string | null) {
 export default function OfflineSync({ onBack, onOpenScanner }: Props) {
   const { theme, colors } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
+  const isTablet = windowWidth >= 768;
+  const isSmallTablet = windowWidth >= 480 && windowWidth < 768;
+  const isPhone = windowWidth < 480;
+
   const [items, setItems] = useState<OfflineAttendanceItem[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>('pending');
   const [isLoading, setIsLoading] = useState(true);
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
-  const isTablet = windowWidth >= 768;
+
+  const { hasGoodInternet, isChecking, checkStatus } = useNetworkStatus();
+  const prevHasGoodInternetRef = useRef<boolean>(true);
+
+  const cardHeight = isPhone ? 70 : isSmallTablet ? 74 : 80;
+  const avatarSize = isPhone ? 40 : 48;
+  const columnWidth = isPhone ? 52 : 60;
+  const gridGap = isPhone ? 6 : 8;
 
   const reloadQueue = useCallback(async () => {
     const queue = await getOfflineAttendanceQueue();
@@ -113,19 +128,48 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
   const loadHistory = useCallback(async () => {
     setIsHistoryLoading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/attendance_today.php`, {
+      const res = await fetch(`${BACKEND_URL}/attendance_today.php?t=${Date.now()}`, {
         headers: { Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' },
       });
       const json = await res.json();
       if (json.ok) {
-        setHistory(json.history || []);
+        const fetchedHistory = json.history || [];
+        setHistory(fetchedHistory);
+        await AsyncStorage.setItem('cached_attendance_today_history', JSON.stringify(fetchedHistory));
       }
     } catch (e) {
       console.error('Failed to fetch history', e);
+      try {
+        const cached = await AsyncStorage.getItem('cached_attendance_today_history');
+        if (cached) {
+          setHistory(JSON.parse(cached));
+        }
+      } catch {}
     } finally {
       setIsHistoryLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    const initHistoryFromCache = async () => {
+      try {
+        const cached = await AsyncStorage.getItem('cached_attendance_today_history');
+        if (cached) {
+          setHistory(JSON.parse(cached));
+        }
+      } catch (e) {
+        console.error('Failed to load cached history', e);
+      }
+    };
+    initHistoryFromCache();
+  }, []);
+
+  useEffect(() => {
+    if (hasGoodInternet && !prevHasGoodInternetRef.current) {
+      loadHistory().catch(() => undefined);
+    }
+    prevHasGoodInternetRef.current = hasGoodInternet;
+  }, [hasGoodInternet, loadHistory]);
 
   useEffect(() => {
     Promise.all([
@@ -139,58 +183,103 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
   const displayedItems = activeTab === 'pending' ? pendingItems : failedItems;
 
   const handleSyncNow = useCallback(async () => {
-    if (isSyncing) return;
+    if (isSyncing || !hasGoodInternet) return;
 
     setIsSyncing(true);
     try {
       await syncOfflineQueue();
+      await loadHistory();
     } finally {
       await reloadQueue();
       setIsSyncing(false);
     }
-  }, [isSyncing, reloadQueue]);
+  }, [isSyncing, reloadQueue, loadHistory, hasGoodInternet]);
+
+  const DashboardWrapper = isTablet ? View : ScrollView;
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
       <View style={styles.mainHeader}>
-        <Pressable
-          onPress={onBack}
-          style={({ pressed }) => [
-            styles.backButton,
-            {
-              backgroundColor: pressed ? withAlpha(colors.border, 0.2) : 'transparent',
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          <MaterialCommunityIcons name="chevron-left" size={32} color={colors.text} />
-        </Pressable>
-        <View style={styles.titleWrap}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Management Dashboard</Text>
-          <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
-            Real-time monitor and sync terminal.
+        <View style={styles.headerLeftRow}>
+          <Pressable
+            onPress={onBack}
+            style={({ pressed }) => [
+              styles.backButton,
+              {
+                backgroundColor: pressed ? withAlpha(colors.border, 0.2) : 'transparent',
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons name="chevron-left" size={32} color={colors.text} />
+          </Pressable>
+          <View style={styles.titleWrap}>
+            <Text style={[styles.headerTitle, { color: colors.text, fontSize: isPhone ? 18 : 24 }]} numberOfLines={1}>
+              Management Dashboard
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: colors.textSecondary, fontSize: isPhone ? 11 : 14 }]} numberOfLines={1}>
+              Real-time monitor and sync terminal.
+            </Text>
+          </View>
+        </View>
+
+        <View style={[
+          styles.headerConnectionBanner,
+          { 
+            backgroundColor: hasGoodInternet ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', 
+            borderColor: hasGoodInternet ? '#22c55e' : '#ef4444' 
+          }
+        ]}>
+          <MaterialCommunityIcons 
+            name={hasGoodInternet ? "wifi" : "wifi-off"} 
+            size={16} 
+            color={hasGoodInternet ? "#22c55e" : "#ef4444"} 
+          />
+          <Text style={[styles.connectionBannerText, { color: hasGoodInternet ? "#16a34a" : "#dc2626" }]}>
+            {hasGoodInternet ? "ONLINE" : "OFFLINE"}
           </Text>
         </View>
       </View>
 
-      <View style={[styles.dashboardContainer, isTablet && styles.tabletRow]}>
+      <DashboardWrapper
+        style={[
+          styles.dashboardContainer, 
+          isTablet ? styles.tabletRow : styles.mobileColumn
+        ]}
+        {...(!isTablet ? {
+          contentContainerStyle: styles.mobileScrollContainer,
+          showsVerticalScrollIndicator: false,
+          refreshControl: (
+            <RefreshControl
+              refreshing={isHistoryLoading}
+              onRefresh={loadHistory}
+              colors={[colors.accent]}
+              tintColor={colors.accent}
+            />
+          )
+        } : {})}
+      >
         {/* LEFT PANEL: OFFLINE SYNC (The "Front" panel) */}
         <View style={[
           styles.syncPanel, 
-          isTablet && { 
+          isTablet ? { 
             flex: 0.6, 
             backgroundColor: theme === 'light' ? '#FFFFFF' : colors.surface, 
             borderRightWidth: 1, 
             borderRightColor: colors.border,
             zIndex: 10,
-            // Subtle Shadow for "Pop"
             shadowColor: '#000',
             shadowOffset: { width: 4, height: 0 },
             shadowOpacity: 0.08,
             shadowRadius: 10,
             elevation: 8, 
+          } : {
+            paddingHorizontal: isPhone ? 12 : 16,
+            paddingVertical: 12,
           }
         ]}>
+
+
           <View style={styles.panelHeaderRow}>
             <View style={styles.panelTitleContainer}>
               <MaterialCommunityIcons name="cloud-off-outline" size={24} color="#f97316" />
@@ -239,7 +328,7 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+          <ScrollView scrollEnabled={isTablet} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
             {isLoading ? (
               <ActivityIndicator size="large" color={colors.accent} style={{marginTop: 40}} />
             ) : displayedItems.length ? (
@@ -255,10 +344,19 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                       {
                         backgroundColor: isFailedItem ? 'rgba(239, 68, 68, 0.04)' : colors.background,
                         borderColor: isFailedItem ? '#ef4444' : colors.border,
+                        height: cardHeight,
                       },
                     ]}
                   >
-                    <View style={[styles.standardAvatar, { backgroundColor: isFailedItem ? '#ef4444' : '#f97316' }]}>
+                    <View style={[
+                      styles.standardAvatar,
+                      {
+                        backgroundColor: isFailedItem ? '#ef4444' : '#f97316',
+                        width: avatarSize,
+                        height: avatarSize,
+                        borderRadius: isPhone ? 10 : 12,
+                      }
+                    ]}>
                       <Text style={styles.avatarText}>{getInitials(displayName)}</Text>
                     </View>
                     <View style={styles.standardContent}>
@@ -288,10 +386,10 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
               style={({ pressed }) => [
                 styles.syncButton,
                 { backgroundColor: pressed ? withAlpha(Colors.powerOrange, 0.85) : Colors.powerOrange },
-                isSyncing && styles.syncButtonDisabled,
+                (isSyncing || !hasGoodInternet) && styles.syncButtonDisabled,
               ]}
               onPress={handleSyncNow}
-              disabled={isSyncing}
+              disabled={isSyncing || !hasGoodInternet}
             >
               {isSyncing ? (
                 <ActivityIndicator color="#fff" />
@@ -308,9 +406,15 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
         {/* RIGHT PANEL: TODAY'S HISTORY (The "Back" panel) */}
         <View style={[
           styles.historyPanel, 
-          isTablet && { 
+          isTablet ? { 
             flex: 0.4, 
             backgroundColor: theme === 'light' ? '#F4F4F5' : colors.background, 
+          } : {
+            backgroundColor: theme === 'light' ? '#F4F4F5' : colors.background,
+            paddingHorizontal: isPhone ? 12 : 16,
+            paddingVertical: 12,
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
           }
         ]}>
           <View style={styles.panelHeaderRow}>
@@ -330,32 +434,47 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
           </View>
 
           <ScrollView
+            scrollEnabled={isTablet}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             refreshControl={
-              <RefreshControl
-                refreshing={isHistoryLoading}
-                onRefresh={loadHistory}
-                colors={[colors.accent]}
-                tintColor={colors.accent}
-              />
+              isTablet ? (
+                <RefreshControl
+                  refreshing={isHistoryLoading}
+                  onRefresh={loadHistory}
+                  colors={[colors.accent]}
+                  tintColor={colors.accent}
+                />
+              ) : undefined
             }
           >
             {history.length > 0 ? (
               history.map((item) => {
-                const isClockIn = item.action === 'clock_in';
-                const badgeColor = isClockIn ? '#22c55e' : colors.accent;
                 const displayName = item.name?.trim() || item.username;
+                const timeinVal = item.timein || (item.action === 'clock_in' ? item.time : null);
+                const timeoutVal = item.timeout || (item.action === 'clock_out' ? item.time : null);
 
                 return (
                   <View
                     key={item.id}
                     style={[
                       styles.standardCard,
-                      { backgroundColor: theme === 'light' ? 'rgba(255,255,255,0.7)' : colors.surface, borderColor: colors.border },
+                      {
+                        backgroundColor: theme === 'light' ? 'rgba(255,255,255,0.7)' : colors.surface,
+                        borderColor: colors.border,
+                        height: cardHeight,
+                      },
                     ]}
                   >
-                    <View style={[styles.standardAvatar, { backgroundColor: withAlpha(colors.accent, 0.1) }]}>
+                    <View style={[
+                      styles.standardAvatar,
+                      {
+                        backgroundColor: withAlpha(colors.accent, 0.1),
+                        width: avatarSize,
+                        height: avatarSize,
+                        borderRadius: isPhone ? 10 : 12,
+                      }
+                    ]}>
                       {item.profilePicture ? (
                         <Image source={{ uri: item.profilePicture }} style={styles.avatarImage} />
                       ) : (
@@ -363,15 +482,40 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                       )}
                     </View>
                     <View style={styles.standardContent}>
-                      <View style={styles.standardTopRow}>
-                        <Text style={[styles.standardName, { color: colors.text, fontSize: 15 }]} numberOfLines={1}>{displayName}</Text>
-                        <View style={[styles.standardBadge, { backgroundColor: withAlpha(badgeColor, 0.15) }]}>
-                          <Text style={[styles.standardBadgeText, { color: badgeColor, fontSize: 10 }]}>
-                            {isClockIn ? 'IN' : 'OUT'}
-                          </Text>
-                        </View>
+                      <Text style={[styles.standardName, { color: colors.text, fontSize: isPhone ? 13 : 15 }]} numberOfLines={1}>
+                        {displayName}
+                      </Text>
+                      <Text style={[styles.standardUsername, { color: colors.textSecondary }]} numberOfLines={1}>
+                        @{item.username}
+                      </Text>
+                    </View>
+                    <View style={[styles.timeGrid, { gap: gridGap }]}>
+                      <View style={[
+                        styles.timeColumn, 
+                        { 
+                          width: columnWidth,
+                          backgroundColor: withAlpha('#22c55e', 0.08), 
+                          borderColor: withAlpha('#22c55e', 0.25) 
+                        }
+                      ]}>
+                        <Text style={[styles.gridLabel, { color: '#22c55e' }]}>IN</Text>
+                        <Text style={[styles.gridValue, { color: colors.text, fontSize: isPhone ? 10 : 11 }]} numberOfLines={1}>
+                          {timeinVal ? formatTimeDisplay(timeinVal) : '--:--'}
+                        </Text>
                       </View>
-                      <Text style={[styles.standardTime, { color: colors.textSecondary, fontSize: 11 }]}>{formatTimeDisplay(item.time)}</Text>
+                      <View style={[
+                        styles.timeColumn, 
+                        { 
+                          width: columnWidth,
+                          backgroundColor: withAlpha('#ef4444', 0.08), 
+                          borderColor: withAlpha('#ef4444', 0.25) 
+                        }
+                      ]}>
+                        <Text style={[styles.gridLabel, { color: '#ef4444' }]}>OUT</Text>
+                        <Text style={[styles.gridValue, { color: colors.text, fontSize: isPhone ? 10 : 11 }]} numberOfLines={1}>
+                          {timeoutVal ? formatTimeDisplay(timeoutVal) : '--:--'}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 );
@@ -384,7 +528,7 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
             )}
           </ScrollView>
         </View>
-      </View>
+      </DashboardWrapper>
     </SafeAreaView>
   );
 }
@@ -396,14 +540,49 @@ const styles = StyleSheet.create({
   mainHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingVertical: 20,
+  },
+  headerLeftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  headerConnectionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    marginLeft: 16,
   },
   dashboardContainer: {
     flex: 1,
   },
+  mobileColumn: {
+    flexDirection: 'column',
+    flex: 1,
+  },
   tabletRow: {
     flexDirection: 'row',
+  },
+  connectionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  connectionBannerText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
   syncPanel: {
     flex: 1,
@@ -621,5 +800,35 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     marginTop: 16,
+  },
+  mobileScrollContainer: {
+    flexGrow: 1,
+    flexDirection: 'column',
+  },
+  standardUsername: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  timeGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  timeColumn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  gridLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  gridValue: {
+    fontSize: 11,
+    fontWeight: '800',
   },
 });
