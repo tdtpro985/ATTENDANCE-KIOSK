@@ -150,6 +150,40 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
   const columnWidth = isPhone ? 52 : 60;
   const gridGap = isPhone ? 6 : 8;
 
+  const headerFontSize = isTablet ? 24 : isSmallTablet ? 20 : 16;
+  const subtitleFontSize = isTablet ? 14 : isSmallTablet ? 12 : 10;
+  const panelTitleFontSize = isTablet ? 20 : isSmallTablet ? 18 : 16;
+  const panelIconSize = isTablet ? 24 : isSmallTablet ? 22 : 18;
+  const refreshTextFontSize = isTablet ? 12 : isSmallTablet ? 11 : 10;
+  
+  const backButtonSize = isTablet ? 48 : isSmallTablet ? 42 : 36;
+  const backIconSize = isTablet ? 32 : isSmallTablet ? 28 : 24;
+  
+  const connectionIconSize = isTablet ? 16 : isSmallTablet ? 14 : 12;
+  const connectionTextFontSize = isTablet ? 11 : isSmallTablet ? 10 : 9;
+
+  const noobTitleFontSize = isTablet ? 13 : isSmallTablet ? 12 : 11;
+  const noobTextFontSize = isTablet ? 12 : isSmallTablet ? 11 : 10;
+  const tabTextFontSize = isTablet ? 12 : isSmallTablet ? 11 : 10;
+
+  const standardNameFontSize = isTablet ? 16 : isSmallTablet ? 14 : 12;
+  const standardTimeFontSize = isTablet ? 12 : isSmallTablet ? 11 : 10;
+  const standardBadgeTextFontSize = isTablet ? 11 : isSmallTablet ? 10 : 9;
+
+  const syncButtonHeight = isTablet ? 68 : isSmallTablet ? 60 : 50;
+  const syncButtonTextFontSize = isTablet ? 18 : isSmallTablet ? 16 : 14;
+  const syncButtonIconSize = isTablet ? 24 : isSmallTablet ? 22 : 18;
+
+  const historyCountFontSize = isTablet ? 11 : isSmallTablet ? 10 : 9;
+
+  const actionHubTextFontSize = isTablet ? 13 : isSmallTablet ? 12 : 11;
+  const actionHubFilterTextFontSize = isTablet ? 11 : isSmallTablet ? 10 : 9;
+
+  const tableHeaderFontSize = isTablet ? 11 : isSmallTablet ? 10 : 9;
+  const rowNameFontSize = isTablet ? 13 : isSmallTablet ? 12 : 11;
+  const rowIdFontSize = isTablet ? 11 : isSmallTablet ? 10 : 9;
+  const rowTimeFontSize = isTablet ? 12 : isSmallTablet ? 11 : 10;
+
   const reloadQueue = useCallback(async () => {
     const queue = await getOfflineAttendanceQueue();
     setItems(queue);
@@ -157,10 +191,16 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
 
   const loadHistory = useCallback(async () => {
     setIsHistoryLoading(true);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
     try {
       const res = await fetch(`${BACKEND_URL}/attendance_today.php?t=${Date.now()}`, {
         headers: { Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
       const json = await res.json();
       if (json.ok) {
         const fetchedHistory = json.history || [];
@@ -168,6 +208,7 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
         await AsyncStorage.setItem('cached_attendance_today_history', JSON.stringify(fetchedHistory));
       }
     } catch (e) {
+      clearTimeout(timeoutId);
       console.error('Failed to fetch history', e);
       try {
         const cached = await AsyncStorage.getItem('cached_attendance_today_history');
@@ -292,16 +333,20 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
               {
                 backgroundColor: pressed ? withAlpha(colors.border, 0.2) : 'transparent',
                 borderColor: colors.border,
+                width: backButtonSize,
+                height: backButtonSize,
+                borderRadius: backButtonSize / 2,
+                marginRight: isTablet ? 16 : isSmallTablet ? 12 : 8,
               },
             ]}
           >
-            <MaterialCommunityIcons name="chevron-left" size={32} color={colors.text} />
+            <MaterialCommunityIcons name="chevron-left" size={backIconSize} color={colors.text} />
           </Pressable>
           <View style={styles.titleWrap}>
-            <Text style={[styles.headerTitle, { color: colors.text, fontSize: isPhone ? 18 : 24 }]} numberOfLines={1}>
+            <Text style={[styles.headerTitle, { color: colors.text, fontSize: headerFontSize }]} numberOfLines={1}>
               Management Dashboard
             </Text>
-            <Text style={[styles.headerSubtitle, { color: colors.textSecondary, fontSize: isPhone ? 11 : 14 }]} numberOfLines={1}>
+            <Text style={[styles.headerSubtitle, { color: colors.textSecondary, fontSize: subtitleFontSize }]} numberOfLines={1}>
               Real-time monitor and sync terminal.
             </Text>
           </View>
@@ -316,10 +361,10 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
         ]}>
           <MaterialCommunityIcons 
             name={hasGoodInternet ? "wifi" : "wifi-off"} 
-            size={16} 
+            size={connectionIconSize} 
             color={hasGoodInternet ? "#22c55e" : "#ef4444"} 
           />
-          <Text style={[styles.connectionBannerText, { color: hasGoodInternet ? "#16a34a" : "#dc2626" }]}>
+          <Text style={[styles.connectionBannerText, { color: hasGoodInternet ? "#16a34a" : "#dc2626", fontSize: connectionTextFontSize }]}>
             {hasGoodInternet ? "ONLINE" : "OFFLINE"}
           </Text>
         </View>
@@ -366,14 +411,14 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
 
           <View style={styles.panelHeaderRow}>
             <View style={styles.panelTitleContainer}>
-              <MaterialCommunityIcons name="cloud-off-outline" size={24} color="#f97316" />
-              <Text style={[styles.panelTitle, { color: colors.text }]}>Offline Queue</Text>
+              <MaterialCommunityIcons name="cloud-off-outline" size={panelIconSize} color="#f97316" />
+              <Text style={[styles.panelTitle, { color: colors.text, fontSize: panelTitleFontSize }]}>Offline Queue</Text>
             </View>
           </View>
 
           <View style={[styles.noobInfoBox, { backgroundColor: withAlpha('#f97316', 0.08) }]}>
-            <Text style={[styles.noobTitle, { color: '#ea580c' }]}>WAITING TO SYNC</Text>
-            <Text style={[styles.noobText, { color: colors.textSecondary }]}>
+            <Text style={[styles.noobTitle, { color: '#ea580c', fontSize: noobTitleFontSize }]}>WAITING TO SYNC</Text>
+            <Text style={[styles.noobText, { color: colors.textSecondary, fontSize: noobTextFontSize }]}>
               These logs were saved offline. Click <Text style={{fontWeight: '800'}}>SYNC NOW</Text> to send to server.
             </Text>
           </View>
@@ -390,7 +435,7 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                 },
               ]}
             >
-              <Text style={[styles.tabText, { color: activeTab === 'pending' ? '#ea580c' : colors.textSecondary }]}>
+              <Text style={[styles.tabText, { color: activeTab === 'pending' ? '#ea580c' : colors.textSecondary, fontSize: tabTextFontSize }]}>
                 Pending ({pendingItems.length})
               </Text>
             </Pressable>
@@ -406,7 +451,7 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                 },
               ]}
             >
-              <Text style={[styles.tabText, { color: activeTab === 'failed' ? '#ef4444' : colors.textSecondary }]}>
+              <Text style={[styles.tabText, { color: activeTab === 'failed' ? '#ef4444' : colors.textSecondary, fontSize: tabTextFontSize }]}>
                 Errors ({failedItems.length})
               </Text>
             </Pressable>
@@ -445,14 +490,14 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                     </View>
                     <View style={styles.standardContent}>
                       <View style={styles.standardTopRow}>
-                        <Text style={[styles.standardName, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
+                        <Text style={[styles.standardName, { color: colors.text, fontSize: standardNameFontSize }]} numberOfLines={1}>{displayName}</Text>
                         <View style={[styles.standardBadge, { backgroundColor: isFailedItem ? withAlpha('#ef4444', 0.15) : withAlpha('#f97316', 0.15) }]}>
-                          <Text style={[styles.standardBadgeText, { color: isFailedItem ? '#ef4444' : '#ea580c' }]}>
+                          <Text style={[styles.standardBadgeText, { color: isFailedItem ? '#ef4444' : '#ea580c', fontSize: standardBadgeTextFontSize }]}>
                             {item.action === 'clock_in' ? 'IN' : 'OUT'}
                           </Text>
                         </View>
                       </View>
-                      <Text style={[styles.standardTime, { color: colors.textSecondary }]}>{formatTimeDisplay(item.time)}</Text>
+                      <Text style={[styles.standardTime, { color: colors.textSecondary, fontSize: standardTimeFontSize }]}>{formatTimeDisplay(item.time)}</Text>
                     </View>
                   </View>
                 );
@@ -469,7 +514,10 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
             <Pressable
               style={({ pressed }) => [
                 styles.syncButton,
-                { backgroundColor: pressed ? withAlpha(Colors.powerOrange, 0.85) : Colors.powerOrange },
+                { 
+                  backgroundColor: pressed ? withAlpha(Colors.powerOrange, 0.85) : Colors.powerOrange,
+                  height: syncButtonHeight
+                },
                 (isSyncing || !hasGoodInternet) && styles.syncButtonDisabled,
               ]}
               onPress={handleSyncNow}
@@ -479,8 +527,8 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <View style={styles.btnInner}>
-                  <MaterialCommunityIcons name="cloud-upload" size={24} color="#fff" />
-                  <Text style={styles.syncButtonText}>SYNC NOW</Text>
+                  <MaterialCommunityIcons name="cloud-upload" size={syncButtonIconSize} color="#fff" />
+                  <Text style={[styles.syncButtonText, { fontSize: syncButtonTextFontSize }]}>SYNC NOW</Text>
                 </View>
               )}
             </Pressable>
@@ -503,18 +551,18 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
         ]}>
           <View style={styles.panelHeaderRow}>
             <View style={styles.panelTitleContainer}>
-              <MaterialCommunityIcons name="history" size={24} color={colors.accent} />
-              <Text style={[styles.panelTitle, { color: colors.text }]}>Today's History</Text>
+              <MaterialCommunityIcons name="history" size={panelIconSize} color={colors.accent} />
+              <Text style={[styles.panelTitle, { color: colors.text, fontSize: panelTitleFontSize }]}>Today's History</Text>
             </View>
             <Pressable onPress={loadHistory} disabled={isHistoryLoading}>
-              <Text style={[styles.refreshText, { color: colors.accent }]}>
+              <Text style={[styles.refreshText, { color: colors.accent, fontSize: refreshTextFontSize }]}>
                 {isHistoryLoading ? '...' : 'REFRESH'}
               </Text>
             </Pressable>
           </View>
 
           <View style={[styles.historySubHeader, { zIndex: 50 }]}>
-            <Text style={[styles.historyCount, { color: colors.textSecondary }]}>{filteredHistory.length} RECORDS ON SERVER</Text>
+            <Text style={[styles.historyCount, { color: colors.textSecondary, fontSize: historyCountFontSize }]}>{filteredHistory.length} RECORDS ON SERVER</Text>
             
             <View style={{position: 'relative', zIndex: 50}}>
               <Pressable 
@@ -546,7 +594,7 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                       placeholderTextColor={colors.textSecondary}
                       value={searchQuery}
                       onChangeText={setSearchQuery}
-                      style={{flex: 1, marginLeft: 8, color: colors.text, fontSize: 13}}
+                      style={{flex: 1, marginLeft: 8, color: colors.text, fontSize: actionHubTextFontSize}}
                     />
                   </View>
                   
@@ -558,7 +606,7 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                         onPress={() => setTimeFilter(f)}
                         style={{flex: 1, height: 32, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: timeFilter === f ? colors.accent : withAlpha(colors.border, 0.2)}}
                       >
-                        <Text style={{fontSize: 11, fontWeight: '800', color: timeFilter === f ? '#fff' : colors.text}}>{f}</Text>
+                        <Text style={{fontSize: actionHubFilterTextFontSize, fontWeight: '800', color: timeFilter === f ? '#fff' : colors.text}}>{f}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -571,7 +619,7 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                     style={{backgroundColor: '#22c55e', height: 44, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8}}
                   >
                     <MaterialCommunityIcons name="file-excel" size={20} color="#fff" />
-                    <Text style={{color: '#fff', fontWeight: '900', fontSize: 13}}>EXPORT CSV</Text>
+                    <Text style={{color: '#fff', fontWeight: '900', fontSize: actionHubTextFontSize}}>EXPORT CSV</Text>
                   </Pressable>
                 </View>
               )}
@@ -596,9 +644,9 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
             {filteredHistory.length > 0 ? (
               <View style={{backgroundColor: theme === 'light' ? '#fff' : colors.surface, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: colors.border}}>
                 <View style={{flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 16, backgroundColor: withAlpha(colors.border, 0.3), borderBottomWidth: 1, borderBottomColor: colors.border}}>
-                  <Text style={{flex: 1.5, fontSize: 11, fontWeight: '900', color: colors.textSecondary, textAlign: 'left'}}>ID & NAME</Text>
-                  <Text style={{flex: 1, fontSize: 11, fontWeight: '900', color: colors.textSecondary, textAlign: 'left'}}>TIME IN</Text>
-                  <Text style={{flex: 1, fontSize: 11, fontWeight: '900', color: colors.textSecondary, textAlign: 'left'}}>TIME OUT</Text>
+                  <Text style={{flex: 1.5, fontSize: tableHeaderFontSize, fontWeight: '900', color: colors.textSecondary, textAlign: 'left'}}>ID & NAME</Text>
+                  <Text style={{flex: 1, fontSize: tableHeaderFontSize, fontWeight: '900', color: colors.textSecondary, textAlign: 'left'}}>TIME IN</Text>
+                  <Text style={{flex: 1, fontSize: tableHeaderFontSize, fontWeight: '900', color: colors.textSecondary, textAlign: 'left'}}>TIME OUT</Text>
                 </View>
                 {filteredHistory.map((item, index) => {
                   const displayName = item.name?.trim() || item.username;
@@ -610,13 +658,13 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
                   return (
                     <View key={item.id} style={{flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 16, backgroundColor: isEven ? 'transparent' : withAlpha(colors.border, 0.1), borderBottomWidth: index === filteredHistory.length - 1 ? 0 : 1, borderBottomColor: withAlpha(colors.border, 0.4), alignItems: 'center'}}>
                       <View style={{flex: 1.5, alignItems: 'flex-start'}}>
-                        <Text style={{fontSize: 13, fontWeight: '800', color: colors.text, textAlign: 'left'}} numberOfLines={1}>{displayName}</Text>
-                        <Text style={{fontSize: 11, color: colors.textSecondary, marginTop: 2, textAlign: 'left'}} numberOfLines={1}>{displayId}</Text>
+                        <Text style={{fontSize: rowNameFontSize, fontWeight: '800', color: colors.text, textAlign: 'left'}} numberOfLines={1}>{displayName}</Text>
+                        <Text style={{fontSize: rowIdFontSize, color: colors.textSecondary, marginTop: 2, textAlign: 'left'}} numberOfLines={1}>{displayId}</Text>
                       </View>
-                      <Text style={{flex: 1, fontSize: 12, fontWeight: '700', color: '#22c55e', textAlign: 'left'}}>
+                      <Text style={{flex: 1, fontSize: rowTimeFontSize, fontWeight: '700', color: '#22c55e', textAlign: 'left'}}>
                         {timeinVal ? formatTimeDisplay(timeinVal) : '--:--'}
                       </Text>
-                      <Text style={{flex: 1, fontSize: 12, fontWeight: '700', color: '#ef4444', textAlign: 'left'}}>
+                      <Text style={{flex: 1, fontSize: rowTimeFontSize, fontWeight: '700', color: '#ef4444', textAlign: 'left'}}>
                         {timeoutVal ? formatTimeDisplay(timeoutVal) : '--:--'}
                       </Text>
                     </View>
