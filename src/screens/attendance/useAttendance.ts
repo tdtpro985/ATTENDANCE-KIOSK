@@ -261,7 +261,7 @@ const sanitizeForLog = (obj: any) => {
 
 export function useAttendance() {
   const { colors } = useTheme();
-  const NETWORK_TIMEOUT_MS = 2500;
+  const NETWORK_TIMEOUT_MS = 1500;
   const NETWORK_TOAST_COOLDOWN_MS = 15000;
     const CAMERA_VISION_STABLE_FACE_FRAMES = 8;
   const CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY = 65;
@@ -989,17 +989,28 @@ export function useAttendance() {
       action, 
       ...location 
     };
-    const res = await fetch(`${BACKEND_URL}/record_attendance.php`, { 
-      method: 'POST', 
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' }, 
-      body: JSON.stringify(payload) 
-    });
-    const responseText = await res.text();
-    let data: any = {};
-    try { data = responseText ? JSON.parse(responseText) : {}; }
-    catch { throw new Error(`Attendance response invalid. Status: ${res.status}`); }
-    if (!res.ok || !data?.ok) throw new Error(data?.message || `Unable to record attendance (${res.status})`);
-    return data;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/record_attendance.php`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' }, 
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      const responseText = await res.text();
+      let data: any = {};
+      try { data = responseText ? JSON.parse(responseText) : {}; }
+      catch { throw new Error(`Attendance response invalid. Status: ${res.status}`); }
+      if (!res.ok || !data?.ok) throw new Error(data?.message || `Unable to record attendance (${res.status})`);
+      return data;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
   }, []);
 
   const storeClockInNotification = useCallback(async (payload: { date?: string; timein?: string }) => {
