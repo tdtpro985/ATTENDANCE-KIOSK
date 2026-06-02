@@ -570,8 +570,8 @@ export default function FaceScanView({
           <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between' }} showsVerticalScrollIndicator={false}>
             <View>
               <View style={styles.leftPanelHeader}>
-                <TouchableOpacity onPress={onBack} style={styles.headerIconButtonLight}><MaterialCommunityIcons name="chevron-left" size={28} color={iconColor} /></TouchableOpacity>
-                <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButtonLight, styles.marginLeft10]}><MaterialCommunityIcons name="history" size={22} color={iconColor} />{pendingSyncCount > 0 && <View style={styles.headerSyncBadge} />}</TouchableOpacity>
+                <TouchableOpacity onPress={onBack} style={[styles.headerIconButtonLight, { backgroundColor: isThemeLight ? '#fff' : colors.background }]}><MaterialCommunityIcons name="chevron-left" size={28} color={iconColor} /></TouchableOpacity>
+                <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButtonLight, styles.marginLeft10, { backgroundColor: isThemeLight ? '#fff' : colors.background }]}><MaterialCommunityIcons name="history" size={22} color={iconColor} />{pendingSyncCount > 0 && <View style={styles.headerSyncBadge} />}</TouchableOpacity>
               </View>
               <View style={styles.profileInfoContainer}>
                 <View style={styles.profileImageContainer}>
@@ -586,8 +586,8 @@ export default function FaceScanView({
             </View>
             <View style={styles.leftPanelFooter}>
               {showProcessingSpinner ? (
-                <View style={styles.verifyingPillLeft}><ActivityIndicator size="small" color={accentColor} /><Text style={[styles.verifyingPillTextLeft, { color: accentColor }]}>{scanStage === 'capturing' ? 'Capturing...' : isClockingOut ? 'Processing Logout...' : 'Verifying Identity...'}</Text></View>
-              ) : (!touchlessEnabled && <TouchableOpacity style={[styles.mainActionButtonLeft, isClockingOut ? styles.mainActionButtonLeftClockOut : [styles.mainActionButtonLeftClockIn, { backgroundColor: isThemeLight ? colors.accent : '#fff' }]]} onPress={onAttendance} disabled={isVerifying || isCapturingHardware}><Text style={[styles.mainActionButtonTextLeft, isClockingOut ? styles.mainActionButtonTextLeftClockOut : { color: isThemeLight ? '#fff' : accentColor }]}>{isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN'}</Text></TouchableOpacity>)}
+                <View style={[styles.verifyingPillLeft, { backgroundColor: isThemeLight ? '#fff' : colors.background }]}><ActivityIndicator size="small" color={accentColor} /><Text style={[styles.verifyingPillTextLeft, { color: accentColor }]}>{scanStage === 'capturing' ? 'Capturing...' : isClockingOut ? 'Processing Logout...' : 'Verifying Identity...'}</Text></View>
+              ) : (!touchlessEnabled && <TouchableOpacity style={[styles.mainActionButtonLeft, isClockingOut ? styles.mainActionButtonLeftClockOut : [styles.mainActionButtonLeftClockIn, { backgroundColor: colors.accent }]]} onPress={onAttendance} disabled={isVerifying || isCapturingHardware}><Text style={[styles.mainActionButtonTextLeft, isClockingOut ? styles.mainActionButtonTextLeftClockOut : { color: '#fff' }]}>{isClockingOut ? 'CONFIRM CLOCK OUT' : 'CONFIRM CLOCK IN'}</Text></TouchableOpacity>)}
             </View>
           </ScrollView>
         </SafeAreaView>

@@ -117,6 +117,7 @@ export const styles = StyleSheet.create({
   },
   portraitProfileInfo: {
     marginLeft: 12,
+    marginRight: 12,
     flex: 1,
   },
   portraitProfileName: {
@@ -430,6 +431,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
     width: '100%',
+    marginTop: 20,
   },
   mainActionButtonLeft: {
     width: '100%',
