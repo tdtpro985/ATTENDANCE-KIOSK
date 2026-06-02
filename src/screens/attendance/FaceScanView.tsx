@@ -489,10 +489,10 @@ export default function FaceScanView({
   const renderHeader = () => (
     <View style={styles.newHeader}>
       <View style={styles.headerLeft}>
-        <TouchableOpacity onPress={onBack} style={styles.headerIconButton}>
+        <TouchableOpacity onPress={onBack} style={[styles.headerIconButton, showProcessingSpinner && { opacity: 0.5 }]} disabled={showProcessingSpinner}>
           <MaterialCommunityIcons name="chevron-left" size={28} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButton, styles.marginLeft10]}>
+        <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButton, styles.marginLeft10, showProcessingSpinner && { opacity: 0.5 }]} disabled={showProcessingSpinner}>
           <MaterialCommunityIcons name="history" size={22} color="#fff" />
           {pendingSyncCount > 0 && <View style={styles.headerSyncBadge} />}
         </TouchableOpacity>
@@ -600,8 +600,8 @@ export default function FaceScanView({
           <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between' }} showsVerticalScrollIndicator={false}>
             <View>
               <View style={styles.leftPanelHeader}>
-                <TouchableOpacity onPress={onBack} style={[styles.headerIconButtonLight, { backgroundColor: isThemeLight ? '#fff' : colors.background }]}><MaterialCommunityIcons name="chevron-left" size={28} color={iconColor} /></TouchableOpacity>
-                <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButtonLight, styles.marginLeft10, { backgroundColor: isThemeLight ? '#fff' : colors.background }]}><MaterialCommunityIcons name="history" size={22} color={iconColor} />{pendingSyncCount > 0 && <View style={styles.headerSyncBadge} />}</TouchableOpacity>
+                <TouchableOpacity onPress={onBack} style={[styles.headerIconButtonLight, { backgroundColor: isThemeLight ? '#fff' : colors.background }, showProcessingSpinner && { opacity: 0.5 }]} disabled={showProcessingSpinner}><MaterialCommunityIcons name="chevron-left" size={28} color={iconColor} /></TouchableOpacity>
+                <TouchableOpacity onPress={onOpenOffline} style={[styles.headerIconButtonLight, styles.marginLeft10, { backgroundColor: isThemeLight ? '#fff' : colors.background }, showProcessingSpinner && { opacity: 0.5 }]} disabled={showProcessingSpinner}><MaterialCommunityIcons name="history" size={22} color={iconColor} />{pendingSyncCount > 0 && <View style={styles.headerSyncBadge} />}</TouchableOpacity>
               </View>
               <View style={styles.profileInfoContainer}>
                 <View style={styles.profileImageContainer}>
