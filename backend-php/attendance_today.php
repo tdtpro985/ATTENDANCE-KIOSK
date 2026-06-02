@@ -26,11 +26,11 @@ if (is_array($data)) {
     foreach ($data as $row) {
         $emp = $row['employees'] ?? null;
         $acc = $emp['accounts'] ?? null;
-        
+
         // If timeout exists, it's a clock_out record (latest state of that session)
         $history[] = [
             'id' => $row['att_id'],
-            'userId' => $emp['log_id'] ?? $row['emp_id'],
+            'emp_id' => $row['emp_id'],
             'name' => $emp['name'] ?? 'Unknown',
             'username' => $acc['username'] ?? 'N/A',
             'profilePicture' => $acc['profile_picture'] ?? null,

@@ -9,10 +9,13 @@ import {
   View,
   Image,
   useWindowDimensions,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { BACKEND_URL } from '../config/backend';
 import { Colors, useTheme } from '../config/theme';
 import {
@@ -34,6 +37,8 @@ interface HistoryItem {
   date: string;
   timein?: string | null;
   timeout?: string | null;
+  userId?: string | null;
+  emp_id?: string | null;
 }
 
 type Props = {
@@ -72,9 +77,30 @@ function withAlpha(hexColor: string, alpha: number) {
 }
 
 function formatTimeValue(hours24: number, minutes: number) {
-  const period = hours24 >= 12 ? 'pm' : 'am';
+  const period = hours24 >= 12 ? 'PM' : 'AM';
   const hour = hours24 % 12 || 12;
-  return minutes === 0 ? `${hour}${period}` : `${hour}:${String(minutes).padStart(2, '0')}${period}`;
+  return `${hour}:${String(minutes).padStart(2, '0')} ${period}`;
+}
+
+function formatMilitaryTime(rawTime?: string | null) {
+  const value = rawTime?.trim();
+  if (!value) return '';
+
+  const militaryMatch = value.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (militaryMatch) {
+    const hours24 = Number(militaryMatch[1]);
+    const minutes = Number(militaryMatch[2]);
+    if (!Number.isNaN(hours24) && !Number.isNaN(minutes) && hours24 >= 0 && hours24 <= 23 && minutes >= 0 && minutes <= 59) {
+      return `${String(hours24).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+  }
+
+  const parsedDate = new Date(value);
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return `${String(parsedDate.getHours()).padStart(2, '0')}:${String(parsedDate.getMinutes()).padStart(2, '0')}`;
+  }
+
+  return value;
 }
 
 function formatTimeDisplay(rawTime?: string | null) {
@@ -111,6 +137,10 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
   const [isLoading, setIsLoading] = useState(true);
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [timeFilter, setTimeFilter] = useState('ALL');
+  const [isActionHubOpen, setIsActionHubOpen] = useState(false);
 
   const { hasGoodInternet, isChecking, checkStatus } = useNetworkStatus();
   const prevHasGoodInternetRef = useRef<boolean>(true);
@@ -194,6 +224,60 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
       setIsSyncing(false);
     }
   }, [isSyncing, reloadQueue, loadHistory, hasGoodInternet]);
+
+  const exportToCSV = async (dataToExport: any[]) => {
+    try {
+      const headerString = 'ID,Name,Time In,Time Out\n';
+      const rowString = dataToExport.map(item => {
+        const displayName = item.name?.trim() || item.username;
+        const timeinVal = item.timein || (item.action === 'clock_in' ? item.time : null);
+        const timeoutVal = item.timeout || (item.action === 'clock_out' ? item.time : null);
+        const csvId = item.emp_id || item.userId || item.id || item.username;
+        return `"\t${csvId}","${displayName}","${formatMilitaryTime(timeinVal)}","${formatMilitaryTime(timeoutVal)}"`;
+      }).join('\n');
+      
+      const csvString = `${headerString}${rowString}`;
+      
+      const date = new Date();
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const fileName = `${year}_${month}_${day}_ATTENDANCE_TODAY.csv`;
+      
+      const file = new File(Paths.document, fileName);
+      file.write(csvString, { encoding: 'utf8' });
+      
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(file.uri);
+      } else {
+        alert('Sharing is not available on this device');
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Failed to export data');
+    }
+  };
+
+  const filteredHistory = useMemo(() => {
+    return history.filter(item => {
+      const displayName = item.name?.trim() || item.username;
+      const matchesSearch = displayName.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                            item.username.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      if (!matchesSearch) return false;
+
+      const timeinVal = item.timein || (item.action === 'clock_in' ? item.time : null);
+      if (timeFilter === 'ALL') return true;
+      
+      const displayTime = formatTimeDisplay(timeinVal).toLowerCase();
+      if (timeFilter === 'AM' && displayTime.includes('am')) return true;
+      if (timeFilter === 'PM' && displayTime.includes('pm')) return true;
+      if (displayTime === '-' || !displayTime) return true; // Include items without time in filtered view if they match search
+      
+      return false;
+    });
+  }, [history, searchQuery, timeFilter]);
 
   const DashboardWrapper = isTablet ? View : ScrollView;
 
@@ -429,8 +513,69 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
             </Pressable>
           </View>
 
-          <View style={styles.historySubHeader}>
-            <Text style={[styles.historyCount, { color: colors.textSecondary }]}>{history.length} RECORDS ON SERVER</Text>
+          <View style={[styles.historySubHeader, { zIndex: 50 }]}>
+            <Text style={[styles.historyCount, { color: colors.textSecondary }]}>{filteredHistory.length} RECORDS ON SERVER</Text>
+            
+            <View style={{position: 'relative', zIndex: 50}}>
+              <Pressable 
+                onPress={() => setIsActionHubOpen(!isActionHubOpen)}
+                style={({ pressed }) => [
+                  {
+                    width: 36, height: 36, borderRadius: 18, 
+                    backgroundColor: pressed ? withAlpha(colors.accent, 0.2) : withAlpha(colors.accent, 0.1),
+                    alignItems: 'center', justifyContent: 'center'
+                  }
+                ]}
+              >
+                <MaterialCommunityIcons name="dots-horizontal" size={22} color={colors.accent} />
+              </Pressable>
+              
+              {isActionHubOpen && (
+                <View style={{
+                  position: 'absolute', top: 45, right: 0,
+                  backgroundColor: theme === 'light' ? '#fff' : colors.surface,
+                  padding: 16, borderRadius: 12, width: 250,
+                  shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
+                  borderWidth: 1, borderColor: colors.border, zIndex: 100
+                }}>
+                  {/* Search Input */}
+                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: withAlpha(colors.border, 0.2), borderRadius: 8, paddingHorizontal: 10, marginBottom: 12, height: 40}}>
+                    <MaterialCommunityIcons name="magnify" size={20} color={colors.textSecondary} />
+                    <TextInput 
+                      placeholder="Search Name/ID"
+                      placeholderTextColor={colors.textSecondary}
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      style={{flex: 1, marginLeft: 8, color: colors.text, fontSize: 13}}
+                    />
+                  </View>
+                  
+                  {/* Time Filter Row */}
+                  <View style={{flexDirection: 'row', gap: 8, marginBottom: 16}}>
+                    {['ALL', 'AM', 'PM'].map(f => (
+                      <Pressable 
+                        key={f}
+                        onPress={() => setTimeFilter(f)}
+                        style={{flex: 1, height: 32, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: timeFilter === f ? colors.accent : withAlpha(colors.border, 0.2)}}
+                      >
+                        <Text style={{fontSize: 11, fontWeight: '800', color: timeFilter === f ? '#fff' : colors.text}}>{f}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Pressable 
+                    onPress={() => {
+                      setIsActionHubOpen(false);
+                      exportToCSV(filteredHistory);
+                    }}
+                    style={{backgroundColor: '#22c55e', height: 44, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8}}
+                  >
+                    <MaterialCommunityIcons name="file-excel" size={20} color="#fff" />
+                    <Text style={{color: '#fff', fontWeight: '900', fontSize: 13}}>EXPORT CSV</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
           </View>
 
           <ScrollView
@@ -448,82 +593,42 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
               ) : undefined
             }
           >
-            {history.length > 0 ? (
-              history.map((item) => {
-                const displayName = item.name?.trim() || item.username;
-                const timeinVal = item.timein || (item.action === 'clock_in' ? item.time : null);
-                const timeoutVal = item.timeout || (item.action === 'clock_out' ? item.time : null);
+            {filteredHistory.length > 0 ? (
+              <View style={{backgroundColor: theme === 'light' ? '#fff' : colors.surface, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: colors.border}}>
+                <View style={{flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 16, backgroundColor: withAlpha(colors.border, 0.3), borderBottomWidth: 1, borderBottomColor: colors.border}}>
+                  <Text style={{flex: 1.5, fontSize: 11, fontWeight: '900', color: colors.textSecondary, textAlign: 'left'}}>ID & NAME</Text>
+                  <Text style={{flex: 1, fontSize: 11, fontWeight: '900', color: colors.textSecondary, textAlign: 'left'}}>TIME IN</Text>
+                  <Text style={{flex: 1, fontSize: 11, fontWeight: '900', color: colors.textSecondary, textAlign: 'left'}}>TIME OUT</Text>
+                </View>
+                {filteredHistory.map((item, index) => {
+                  const displayName = item.name?.trim() || item.username;
+                  const timeinVal = item.timein || (item.action === 'clock_in' ? item.time : null);
+                  const timeoutVal = item.timeout || (item.action === 'clock_out' ? item.time : null);
+                  const displayId = item.emp_id || item.userId || item.id || item.username;
+                  const isEven = index % 2 === 0;
 
-                return (
-                  <View
-                    key={item.id}
-                    style={[
-                      styles.standardCard,
-                      {
-                        backgroundColor: theme === 'light' ? 'rgba(255,255,255,0.7)' : colors.surface,
-                        borderColor: colors.border,
-                        height: cardHeight,
-                      },
-                    ]}
-                  >
-                    <View style={[
-                      styles.standardAvatar,
-                      {
-                        backgroundColor: withAlpha(colors.accent, 0.1),
-                        width: avatarSize,
-                        height: avatarSize,
-                        borderRadius: isPhone ? 10 : 12,
-                      }
-                    ]}>
-                      {item.profilePicture ? (
-                        <Image source={{ uri: item.profilePicture }} style={styles.avatarImage} />
-                      ) : (
-                        <Text style={[styles.historyAvatarText, { color: colors.accent }]}>{getInitials(displayName)}</Text>
-                      )}
-                    </View>
-                    <View style={styles.standardContent}>
-                      <Text style={[styles.standardName, { color: colors.text, fontSize: isPhone ? 13 : 15 }]} numberOfLines={1}>
-                        {displayName}
+                  return (
+                    <View key={item.id} style={{flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 16, backgroundColor: isEven ? 'transparent' : withAlpha(colors.border, 0.1), borderBottomWidth: index === filteredHistory.length - 1 ? 0 : 1, borderBottomColor: withAlpha(colors.border, 0.4), alignItems: 'center'}}>
+                      <View style={{flex: 1.5, alignItems: 'flex-start'}}>
+                        <Text style={{fontSize: 13, fontWeight: '800', color: colors.text, textAlign: 'left'}} numberOfLines={1}>{displayName}</Text>
+                        <Text style={{fontSize: 11, color: colors.textSecondary, marginTop: 2, textAlign: 'left'}} numberOfLines={1}>{displayId}</Text>
+                      </View>
+                      <Text style={{flex: 1, fontSize: 12, fontWeight: '700', color: '#22c55e', textAlign: 'left'}}>
+                        {timeinVal ? formatTimeDisplay(timeinVal) : '--:--'}
                       </Text>
-                      <Text style={[styles.standardUsername, { color: colors.textSecondary }]} numberOfLines={1}>
-                        @{item.username}
+                      <Text style={{flex: 1, fontSize: 12, fontWeight: '700', color: '#ef4444', textAlign: 'left'}}>
+                        {timeoutVal ? formatTimeDisplay(timeoutVal) : '--:--'}
                       </Text>
                     </View>
-                    <View style={[styles.timeGrid, { gap: gridGap }]}>
-                      <View style={[
-                        styles.timeColumn, 
-                        { 
-                          width: columnWidth,
-                          backgroundColor: withAlpha('#22c55e', 0.08), 
-                          borderColor: withAlpha('#22c55e', 0.25) 
-                        }
-                      ]}>
-                        <Text style={[styles.gridLabel, { color: '#22c55e' }]}>IN</Text>
-                        <Text style={[styles.gridValue, { color: colors.text, fontSize: isPhone ? 10 : 11 }]} numberOfLines={1}>
-                          {timeinVal ? formatTimeDisplay(timeinVal) : '--:--'}
-                        </Text>
-                      </View>
-                      <View style={[
-                        styles.timeColumn, 
-                        { 
-                          width: columnWidth,
-                          backgroundColor: withAlpha('#ef4444', 0.08), 
-                          borderColor: withAlpha('#ef4444', 0.25) 
-                        }
-                      ]}>
-                        <Text style={[styles.gridLabel, { color: '#ef4444' }]}>OUT</Text>
-                        <Text style={[styles.gridValue, { color: colors.text, fontSize: isPhone ? 10 : 11 }]} numberOfLines={1}>
-                          {timeoutVal ? formatTimeDisplay(timeoutVal) : '--:--'}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                );
-              })
+                  );
+                })}
+              </View>
             ) : (
               <View style={styles.emptyState}>
-                <MaterialCommunityIcons name="history" size={48} color={colors.border} />
-                <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No History Yet</Text>
+                <MaterialCommunityIcons name="table-search" size={48} color={colors.border} />
+                <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                  {history.length > 0 ? "No Matching Records" : "No History Yet"}
+                </Text>
               </View>
             )}
           </ScrollView>
