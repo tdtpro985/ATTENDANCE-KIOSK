@@ -589,7 +589,8 @@ export default function EmployeeProfileData({ onBack }: Props) {
   );
 
   const cardWidth = useMemo(() => {
-    const availableWidth = windowWidth - 64; // 32 horizontal padding on each side
+    const horizontalPadding = 48; // 24 horizontal padding on each side
+    const availableWidth = windowWidth - horizontalPadding;
     const gap = 20;
     let cols = 1;
     if (windowWidth >= 1200) cols = 4;
@@ -599,35 +600,29 @@ export default function EmployeeProfileData({ onBack }: Props) {
     return Math.max(availableWidth - (gap * (cols - 1)), 0) / cols;
   }, [windowWidth]);
 
-  const getShimmerStyle = (width: number = 200) => ({
-    position: 'absolute' as const,
-    top: 0,
-    bottom: 0,
-    width: width,
-    backgroundColor: theme === 'light' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.08)',
-    transform: [{
-      translateX: shimmerTranslate.interpolate({
-        inputRange: [-1, 1],
-        outputRange: [-width, width]
-      })
-    }]
-  });
+  const getShimmerStyle = (width: number | string = 200) => {
+    const numericWidth = typeof width === 'number' ? width : 200;
+    return {
+      position: 'absolute' as const,
+      top: 0,
+      bottom: 0,
+      width: width as any,
+      backgroundColor: theme === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.15)',
+      opacity: shimmerTranslate.interpolate({
+        inputRange: [-1, -0.2, 0.2, 1],
+        outputRange: [0, 1, 1, 0]
+      }),
+      transform: [{
+        translateX: shimmerTranslate.interpolate({
+          inputRange: [-1, 1],
+          outputRange: [-numericWidth, numericWidth]
+        })
+      }]
+    };
+  };
 
   const SkeletonCard = () => (
     <View style={[styles.employeeCard, { width: cardWidth, backgroundColor: colors.surface, borderColor: colors.border, overflow: 'hidden' }]}>
-      <Animated.View 
-        style={[
-          styles.shimmerStreak, 
-          { 
-            transform: [{ 
-              translateX: shimmerTranslate.interpolate({
-                inputRange: [-1, 1],
-                outputRange: [-200, 600]
-              }) 
-            }] 
-          }
-        ]} 
-      />
       <View style={[styles.accentStrip, { backgroundColor: colors.border, opacity: 0.2 }]} />
       <View style={styles.cardContent}>
         <View style={styles.cardHeader}>
@@ -997,15 +992,6 @@ const styles = StyleSheet.create({
   },
   skeletonLine: {
     borderRadius: 4,
-  },
-  shimmerStreak: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: '100%',
-    backgroundColor: 'rgba(61, 61, 61, 0.15)',
-    zIndex: 10,
-    transform: [{ skewX: '-25deg' }],
   },
   list: {
     paddingHorizontal: 24,
