@@ -172,6 +172,7 @@ export default function EmployeeProfileData({ onBack }: Props) {
   const syncNowButtonTextFontSize = isTablet ? 16 : isSmallTablet ? 14 : 12;
   const avatarPlaceholderTextFontSize = isTablet ? 24 : isSmallTablet ? 20 : 16;
   const sortToggleTextFontSize = isTablet ? 13 : isSmallTablet ? 12 : 11;
+  const deleteIconFontSize = isTablet ? 18 : isSmallTablet ? 16 : 14;
   const isFetchingRef = useRef(false);
   const mountedRef = useRef(true);
 
