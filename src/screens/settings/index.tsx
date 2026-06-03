@@ -80,7 +80,7 @@ export default function Settings({ onBack }: Props) {
       Animated.loop(
         Animated.timing(shimmerTranslate, {
           toValue: 1,
-          duration: 1500,
+          duration: 1200,
           useNativeDriver: true,
         })
       ).start();
@@ -247,38 +247,32 @@ export default function Settings({ onBack }: Props) {
   }, [onBack]);
 
   if (isLoading) {
-    const getShimmerStyle = (width: number = 200) => ({
-      position: 'absolute' as const,
-      top: 0,
-      bottom: 0,
-      width: width,
-      backgroundColor: theme === 'light' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.08)',
-      transform: [{
-        translateX: shimmerTranslate.interpolate({
-          inputRange: [-1, 1],
-          outputRange: [-width, width]
-        })
-      }]
-    });
+    const getShimmerStyle = (width: number | string = 200) => {
+      const numericWidth = typeof width === 'number' ? width : 200;
+      return {
+        position: 'absolute' as const,
+        top: 0,
+        bottom: 0,
+        width: width as any,
+        backgroundColor: theme === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.15)',
+        opacity: shimmerTranslate.interpolate({
+          inputRange: [-1, -0.2, 0.2, 1],
+          outputRange: [0, 1, 1, 0]
+        }),
+        transform: [{
+          translateX: shimmerTranslate.interpolate({
+            inputRange: [-1, 1],
+            outputRange: [-numericWidth, numericWidth]
+          })
+        }]
+      };
+    };
 
     const SettingRowSkeleton = () => (
       <View style={[
         styles.rowSkeleton, 
         { backgroundColor: colors.surface, borderColor: colors.border, overflow: 'hidden', position: 'relative' }
       ]}>
-        <Animated.View 
-          style={[
-            styles.shimmerStreak, 
-            { 
-              transform: [{ 
-                translateX: shimmerTranslate.interpolate({
-                  inputRange: [-1, 1],
-                  outputRange: [-200, 600]
-                }) 
-              }] 
-            }
-          ]} 
-        />
         <View style={styles.rowTextBlock}>
           <View style={{ width: '45%', height: 22, borderRadius: 6, marginBottom: 8, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
             <Animated.View style={getShimmerStyle(150)} />
@@ -340,19 +334,6 @@ export default function Settings({ onBack }: Props) {
             </View>
             
             <View style={[styles.themeSelectorSkeleton, { backgroundColor: colors.surface, borderColor: colors.border, overflow: 'hidden', position: 'relative' }]}>
-              <Animated.View 
-                style={[
-                  styles.shimmerStreak, 
-                  { 
-                    transform: [{ 
-                      translateX: shimmerTranslate.interpolate({
-                        inputRange: [-1, 1],
-                        outputRange: [-200, 600]
-                      }) 
-                    }] 
-                  }
-                ]} 
-              />
               <View style={{ width: '30%', height: 16, borderRadius: 4, marginBottom: 16, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
                 <Animated.View style={getShimmerStyle(100)} />
               </View>
@@ -374,19 +355,6 @@ export default function Settings({ onBack }: Props) {
 
             {/* Device Storage Card Skeleton */}
             <View style={[styles.storageCard, { backgroundColor: colors.surface, borderColor: colors.border, overflow: 'hidden', position: 'relative' }]}>
-              <Animated.View 
-                style={[
-                  styles.shimmerStreak, 
-                  { 
-                    transform: [{ 
-                      translateX: shimmerTranslate.interpolate({
-                        inputRange: [-1, 1],
-                        outputRange: [-200, 600]
-                      }) 
-                    }] 
-                  }
-                ]} 
-              />
               <View style={styles.storageMainRow}>
                 <View style={styles.storageInfoBlock}>
                   <View style={{ width: 90, height: 12, borderRadius: 3, marginBottom: 6, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
@@ -789,14 +757,5 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1.5,
     marginTop: 8,
-  },
-  shimmerStreak: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: '100%',
-    backgroundColor: 'rgba(61, 61, 61, 0.15)',
-    zIndex: 10,
-    transform: [{ skewX: '-25deg' }],
   },
 });
