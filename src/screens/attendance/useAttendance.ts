@@ -983,8 +983,7 @@ export function useAttendance() {
     console.log(`[CameraVision] Verification gate blocked: ${reason}`);
   }, []);
 
-  const recordAttendance = useCallback(async (action: 'clock_in' | 'clock_out', location: { address?: string; latitude?: number; longitude?: number } = {}) => {
-    const userId = await AsyncStorage.getItem('userId');
+  const recordAttendance = useCallback(async (userId: string, action: 'clock_in' | 'clock_out', location: { address?: string; latitude?: number; longitude?: number } = {}) => {
     if (!userId) return;
     console.log('[Attendance] Recording', { userId, action, location });
     const payload = { 
@@ -1087,7 +1086,7 @@ export function useAttendance() {
 
       // Determine true offline status for UI message
       const isActuallyOffline = !isConnected || !hasGoodInternet || offlineModeEnabled;
-      
+
       setScanStage('success');
       setSuccessAnimationTick((prev) => prev + 1);
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -1100,10 +1099,20 @@ export function useAttendance() {
           : (isActuallyOffline ? 'Clocked Out — Saved Offline' : "You're Clocked Out!"),
         isActuallyOffline ? 'Will sync automatically when connected.' : '', 2000);
 
-      // FIRE AND FORGET: Trigger sync in background if enabled
-      const autoSyncRaw = await AsyncStorage.getItem('settings_auto_sync_enabled');
-      if (autoSyncRaw !== 'false') {
-        syncOfflineQueue().catch(e => console.log('[Attendance] Background sync error (safe to ignore)', e));
+      // Sync trigger logic:
+      if (!isActuallyOffline) {
+        // If we are online, ALWAYS auto-sync the queue immediately
+        console.log('[Attendance] Online: Triggering automatic sync in background...');
+        syncOfflineQueue().catch(e => console.log('[Attendance] Background sync error', e));
+      } else {
+        // If offline, check settings for auto-sync
+        const autoSyncRaw = await AsyncStorage.getItem('settings_auto_sync_enabled');
+        if (autoSyncRaw !== 'false') {
+          console.log('[Attendance] Offline but auto-sync is enabled. Background sync will retry when connection is back.');
+          syncOfflineQueue().catch(e => console.log('[Attendance] Background sync error (safe to ignore)', e));
+        } else {
+          console.log('[Attendance] Offline and auto-sync is disabled. Record remains pending in offline queue.');
+        }
       }
 
     } catch (e: any) {
@@ -1113,7 +1122,7 @@ export function useAttendance() {
     } finally {
       setIsVerifying(false);
     }
-  }, [attendanceAction, clearStoredSession, enqueueOfflineAttendance, isConnected, hasGoodInternet, offlineModeEnabled, refreshPendingSyncCount, resetAttendanceFlow, saveStoredSession, showModal, storeClockInNotification, workletPhase]);
+  }, [attendanceAction, clearStoredSession, enqueueOfflineAttendance, isConnected, hasGoodInternet, offlineModeEnabled, refreshPendingSyncCount, resetAttendanceFlow, saveStoredSession, showModal, storeClockInNotification, workletPhase, recordAttendance]);
 
   // Main attendance handler (Concurrent Phase 1 & 2)
   const executeFaceVerification = useCallback(async () => {
