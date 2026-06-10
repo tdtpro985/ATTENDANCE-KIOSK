@@ -321,6 +321,10 @@ export default function EmployeeProfileData({ onBack }: Props) {
         throw new Error('Unable to sync employee directory');
       }
 
+      if (payload.kiosk_mode) {
+        mmkv.set('kiosk_mode', payload.kiosk_mode);
+      }
+
       let rows = payload.data as EmployeeRow[];
       
       if (isInitial) {
@@ -410,6 +414,9 @@ export default function EmployeeProfileData({ onBack }: Props) {
         }
 
         if (payload?.ok && Array.isArray(payload?.data) && isCurrent) {
+          if (payload.kiosk_mode) {
+            mmkv.set('kiosk_mode', payload.kiosk_mode);
+          }
           let rows = payload.data as EmployeeRow[];
           rows = enrichEmployeesWithCache(rows);
           setUniqueEmployees(rows, false);
