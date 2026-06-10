@@ -119,4 +119,11 @@ def get_embeddings():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001)
+    try:
+        from waitress import serve
+        print("Starting HRIS Face Embedding Server on port 5001 (Production Mode)...")
+        serve(app, host='0.0.0.0', port=5001, threads=6)
+    except ImportError:
+        print("Waitress not found. Starting in Development Mode...")
+        app.run(host='0.0.0.0', port=5001)
+
