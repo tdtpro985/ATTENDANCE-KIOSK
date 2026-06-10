@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef, useState } from 'react';
 import { BACKEND_URL } from '../config/backend';
 import { getOfflineAttendanceQueue, syncOfflineQueue } from './offlineAttendance';
+import { mmkv } from './offlineUsers';
 
 /**
  * Hook to handle automatic background syncing of offline attendance records.
@@ -49,6 +50,13 @@ export function useAutoSync() {
         if (response.ok) {
           setIsOnline(true);
           stabilityCounterRef.current += 1;
+
+          try {
+            const data = await response.json();
+            if (data && data.kiosk_mode) {
+              mmkv.set('kiosk_mode', data.kiosk_mode);
+            }
+          } catch (e) {}
 
           // If stable for 2 pings (60s), trigger sync
           if (stabilityCounterRef.current >= 2) {
