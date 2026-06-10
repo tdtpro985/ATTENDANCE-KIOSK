@@ -215,7 +215,7 @@ if ($userId === '' || !in_array($action, ['clock_in', 'clock_out'], true)) {
     exit;
 }
 
-if (strpos($userId, 'intern_') === 0 || (defined('KIOSK_MODE') && KIOSK_MODE === 'intern')) {
+if (strpos($userId, 'intern_') === 0 || (defined('KIOSK_MODE') && KIOSK_MODE === 'intern') || (isset($body['isIntern']) && $body['isIntern'] === true)) {
     $numericId = (int)str_replace('intern_', '', $userId);
     $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
     $httpHost = $_SERVER['HTTP_HOST'] ?? 'localhost';
@@ -234,11 +234,18 @@ if (strpos($userId, 'intern_') === 0 || (defined('KIOSK_MODE') && KIOSK_MODE ===
     curl_setopt($ch, CURLOPT_URL, "{$imsUrl}/api/record_intern_attendance.php");
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
+    
+    $isOffline = !empty($providedDate) && !empty($providedTime);
+    
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
         'intern_id' => $numericId,
         'action' => $action,
         'date' => $providedDate ?: date('Y-m-d'),
-        'time' => $providedTime ?: date('H:i:s')
+        'time' => $providedTime ?: date('H:i:s'),
+        'is_offline' => $isOffline,
+        'latitude' => $lat,
+        'longitude' => $lng,
+        'address' => $address ?? null
     ]));
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
     $proxy = getenv('HTTP_PROXY') ?: getenv('http_proxy') ?: null;
@@ -256,13 +263,19 @@ if (strpos($userId, 'intern_') === 0 || (defined('KIOSK_MODE') && KIOSK_MODE ===
     curl_close($ch);
 
     if ($curlErr) {
+        error_log("[Attendance Sync] Curl error reaching IMS ({$imsUrl}): " . $curlErr);
         http_response_code(502);
-        echo json_encode(['ok' => false, 'message' => 'Failed to reach IMS server: ' . $curlErr]);
+        echo json_encode([
+            'ok' => false, 
+            'message' => 'Failed to reach IMS server: ' . $curlErr,
+            'target_url' => "{$imsUrl}/api/record_intern_attendance.php"
+        ]);
         exit;
     }
 
     $data = json_decode($response, true);
     if ($httpCode !== 200 || !($data['ok'] ?? false)) {
+        error_log("[Attendance Sync] IMS error response: " . ($response ?: 'Empty response'));
         http_response_code($httpCode ?: 500);
         echo json_encode(['ok' => false, 'message' => $data['message'] ?? 'IMS record failure']);
         exit;
