@@ -664,3 +664,20 @@
       body: JSON.stringify(payload)
   });
   ```
+
+---
+
+## Operational Recommendations & Enhancements
+
+### 1. Offline Verification and Caching for Interns
+* **Concept:** Currently, Kiosk offline redundancies only cover employees. If the connection to the PHP server fails, interns cannot register attendance.
+* **Enhancement:** Modify the Kiosk sync tasks to pull active intern face embeddings into a local SQLite/AsyncStorage cache. This allows offline intern verification, logging attendance locally, and syncing logs when connection is restored.
+
+### 2. Time-Falsification Prevention
+* **Concept:** The API accepts client-side time values. While helpful for offline queuing, a dedicated mountable Kiosk should verify records against the secure authority clock.
+* **Enhancement:** When logging attendance online, use the server's timezone-aware clock (`date('H:i:s')` under `Asia/Manila` in PHP) rather than the Kiosk client-supplied parameters.
+
+### 3. Local SSL configuration for Webcams
+* **Concept:** Camera hardware access (`getUserMedia`) requires a secure origin (HTTPS) on client web views.
+* **Enhancement:** Ensure Webmin is configured with active SSL certificates (via Let's Encrypt or a local trust store CA certificate) for deployment.
+
