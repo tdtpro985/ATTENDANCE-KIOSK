@@ -158,7 +158,8 @@ if ($detailId) {
         'status' => $status,
         'error' => $err ?: ($user === null ? 'User not found' : null),
         'user' => $user,
-        'profile_picture_hq' => $profile_picture_hq 
+        'profile_picture_hq' => $profile_picture_hq,
+        'kiosk_mode' => defined('KIOSK_MODE') ? KIOSK_MODE : 'employee'
     ]);
     exit;
 }
@@ -284,4 +285,5 @@ echo json_encode([
     'status' => $status,
     'error' => $err,
     'data' => $data,
+    'kiosk_mode' => defined('KIOSK_MODE') ? KIOSK_MODE : 'employee'
 ]);
