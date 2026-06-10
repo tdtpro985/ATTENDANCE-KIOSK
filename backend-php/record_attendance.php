@@ -221,11 +221,14 @@ if (strpos($userId, 'intern_') === 0 || (defined('KIOSK_MODE') && KIOSK_MODE ===
     $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
     $httpHost = $_SERVER['HTTP_HOST'] ?? 'localhost';
     
-    if (preg_match('/:80\d\d$/', $httpHost)) {
-        $imsHost = preg_replace('/:80\d\d$/', ':8002', $httpHost);
-        $imsUrl = "{$scheme}://{$imsHost}";
-    } else {
-        $imsUrl = "{$scheme}://{$httpHost}/ims";
+    $imsUrl = getenv('IMS_URL') ?: null;
+    if (empty($imsUrl)) {
+        if (preg_match('/:80\d\d$/', $httpHost)) {
+            $imsHost = preg_replace('/:80\d\d$/', ':8002', $httpHost);
+            $imsUrl = "{$scheme}://{$imsHost}";
+        } else {
+            $imsUrl = "{$scheme}://{$httpHost}/ims";
+        }
     }
     
     $ch = curl_init();
