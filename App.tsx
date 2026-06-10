@@ -10,6 +10,7 @@ import OfflineSync from './src/screens/OfflineSync';
 import * as Location from 'expo-location';
 import { ThemeContext, Theme, getStoredTheme, saveTheme, ThemeType, Colors } from './src/config/theme';
 import { useAutoSync } from './src/utils/useAutoSync';
+import { mmkv } from './src/utils/offlineUsers';
 
 export default function App() {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -45,6 +46,9 @@ export default function App() {
 
   const [screen, setScreen] = useState<'home' | 'qr' | 'profile' | 'settings' | 'offline'>('home');
   const [theme, setThemeState] = useState<ThemeType>('light');
+  const [kioskMode, setKioskMode] = useState<'employee' | 'intern'>(() => {
+    return (mmkv.getString('kiosk_mode') as 'employee' | 'intern') || 'employee';
+  });
 
   const setTheme = useCallback((newTheme: ThemeType) => {
     setThemeState(newTheme);
@@ -58,6 +62,13 @@ export default function App() {
     getStoredTheme().then(setThemeState);
     Location.requestForegroundPermissionsAsync().catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const mode = (mmkv.getString('kiosk_mode') as 'employee' | 'intern') || 'employee';
+    if (mode !== kioskMode) {
+      setKioskMode(mode);
+    }
+  }, [screen]);
 
   const ScreenComponent = useMemo(() => {
     if (screen === 'qr') return <ShowQRScan onBack={() => setScreen('home')} onOpenOffline={() => setScreen('offline')} />;
@@ -156,7 +167,9 @@ export default function App() {
                   ]} 
                   onPress={() => setScreen('profile')}
                 >
-                  <Text style={[styles.secondaryButtonText, { color: currentTheme.text, fontSize: directoryBtnFontSize }]}>EMPLOYEE DIRECTORY</Text>
+                  <Text style={[styles.secondaryButtonText, { color: currentTheme.text, fontSize: directoryBtnFontSize }]}>
+                    {kioskMode === 'intern' ? 'INTERN LIST' : 'EMPLOYEE DIRECTORY'}
+                  </Text>
                 </Pressable>
 
                 <Pressable 

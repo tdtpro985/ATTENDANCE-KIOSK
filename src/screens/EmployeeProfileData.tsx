@@ -149,6 +149,9 @@ export default function EmployeeProfileData({ onBack }: Props) {
   const [isBootstrapping, setIsBootstrapping] = useState(globalEmployeesCache.length === 0);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(globalLastSyncCache);
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRow | null>(null);
+  const [kioskMode, setKioskMode] = useState<'employee' | 'intern'>(() => {
+    return (mmkv.getString('kiosk_mode') as 'employee' | 'intern') || 'employee';
+  });
   const localMatchCount = useMemo(() => {
     if (!searchText) return 0;
     return employees.filter(emp => {
@@ -323,6 +326,9 @@ export default function EmployeeProfileData({ onBack }: Props) {
 
       if (payload.kiosk_mode) {
         mmkv.set('kiosk_mode', payload.kiosk_mode);
+        if (kioskMode !== payload.kiosk_mode) {
+          setKioskMode(payload.kiosk_mode);
+        }
       }
 
       let rows = payload.data as EmployeeRow[];
@@ -416,6 +422,9 @@ export default function EmployeeProfileData({ onBack }: Props) {
         if (payload?.ok && Array.isArray(payload?.data) && isCurrent) {
           if (payload.kiosk_mode) {
             mmkv.set('kiosk_mode', payload.kiosk_mode);
+            if (kioskMode !== payload.kiosk_mode) {
+              setKioskMode(payload.kiosk_mode);
+            }
           }
           let rows = payload.data as EmployeeRow[];
           rows = enrichEmployeesWithCache(rows);
@@ -672,9 +681,11 @@ export default function EmployeeProfileData({ onBack }: Props) {
           <MaterialCommunityIcons name="chevron-left" size={32} color={colors.text} />
         </Pressable>
         <View style={styles.headerTitleWrap}>
-          <Text style={[styles.title, { color: colors.text, fontSize: titleFontSize }]}>Employee Directory</Text>
+          <Text style={[styles.title, { color: colors.text, fontSize: titleFontSize }]}>
+            {kioskMode === 'intern' ? 'Intern List' : 'Employee Directory'}
+          </Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary, fontSize: subtitleFontSize }]}>
-            Employee information and records.
+            {kioskMode === 'intern' ? 'Intern information and records.' : 'Employee information and records.'}
           </Text>
         </View>
         <Pressable
@@ -699,7 +710,7 @@ export default function EmployeeProfileData({ onBack }: Props) {
         ]}>
           <TextInput
             style={[styles.searchInput, { color: colors.text, fontSize: searchInputFontSize }]}
-            placeholder="Search by name or role..."
+            placeholder={kioskMode === 'intern' ? 'Search by intern name...' : 'Search by name or role...'}
             placeholderTextColor={colors.textSecondary}
             value={searchText}
             onChangeText={setSearchText}
@@ -821,7 +832,9 @@ export default function EmployeeProfileData({ onBack }: Props) {
               {isLoadingMore ? (
                 <ActivityIndicator color={Colors.powerOrange} />
               ) : (
-                <Text style={[styles.loadMoreText, { color: Colors.powerOrange, fontSize: loadMoreTextFontSize }]}>LOAD MORE EMPLOYEES</Text>
+                <Text style={[styles.loadMoreText, { color: Colors.powerOrange, fontSize: loadMoreTextFontSize }]}>
+                  {kioskMode === 'intern' ? 'LOAD MORE INTERNS' : 'LOAD MORE EMPLOYEES'}
+                </Text>
               )}
             </Pressable>
           )}
@@ -831,7 +844,9 @@ export default function EmployeeProfileData({ onBack }: Props) {
               <View style={styles.notSyncedContainer}>
                 <MaterialCommunityIcons name="database-sync" size={80} color={colors.textSecondary} style={{ marginBottom: 16 }} />
                 <Text style={[styles.notSyncedText, { color: colors.text, fontSize: notSyncedTextFontSize }]}>Directory Not Synced Yet</Text>
-                <Text style={[styles.notSyncedSubtext, { color: colors.textSecondary, fontSize: notSyncedSubtextFontSize }]}>You need to sync to load employee records.</Text>
+                <Text style={[styles.notSyncedSubtext, { color: colors.textSecondary, fontSize: notSyncedSubtextFontSize }]}>
+                  {kioskMode === 'intern' ? 'You need to sync to load intern records.' : 'You need to sync to load employee records.'}
+                </Text>
                 <Pressable
                   onPress={handleManualRefresh}
                   style={({ pressed }) => [
