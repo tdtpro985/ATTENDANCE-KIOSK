@@ -14,6 +14,7 @@ import { ThemeSelectorFeature } from './features/ThemeSelectorFeature';
 import { LivenessCheckFeature } from './features/LivenessCheckFeature';
 import { AutoSyncFeature } from './features/AutoSyncFeature';
 import { SettingRow } from './components/SettingRow';
+import { mmkv } from '../../utils/offlineUsers';
 
 const TOUCHLESS_SETTING_KEY = 'settings_touchless_enabled';
 const AUTO_SYNC_SETTING_KEY = 'settings_auto_sync_enabled';
@@ -74,6 +75,9 @@ export default function Settings({ onBack }: Props) {
   const [touchlessEnabled, setTouchlessEnabled] = useState(false);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
+  const [kioskMode, setKioskMode] = useState<'employee' | 'intern'>(() => {
+    return (mmkv.getString('kiosk_mode') as 'employee' | 'intern') || 'employee';
+  });
 
   // Shimmer animation for loading skeletons
   const shimmerTranslate = useRef(new Animated.Value(-1)).current;
@@ -159,6 +163,10 @@ export default function Settings({ onBack }: Props) {
           ...prev,
           ...payload.settings,
         }));
+        if (payload.kiosk_mode) {
+          mmkv.set('kiosk_mode', payload.kiosk_mode);
+          setKioskMode(payload.kiosk_mode);
+        }
       } else {
         setIsOnline(false);
       }
@@ -425,10 +433,12 @@ export default function Settings({ onBack }: Props) {
             <AutoSyncFeature enabled={autoSyncEnabled} onToggle={handleAutoSyncChange} />
             <TouchlessModeFeature enabled={touchlessEnabled} onToggle={handleTouchlessChange} />
             <LivenessCheckFeature enabled={livenessEnabled} onToggle={handleLivenessChange} />
-            <SyncLocationFeature
-              attendance_location={backendSettings.attendance_location}
-              saveBackendSettings={saveBackendSettings}
-            />
+            {kioskMode !== 'intern' && (
+              <SyncLocationFeature
+                attendance_location={backendSettings.attendance_location}
+                saveBackendSettings={saveBackendSettings}
+              />
+            )}
             {/* <AdminAccessFeature saveBackendSettings={saveBackendSettings} /> */}
             <OfflineRedundancyFeature isOnline={isOnline} />
           </View>
@@ -437,6 +447,27 @@ export default function Settings({ onBack }: Props) {
             <Text style={[styles.sectionTitle, { color: colors.textSecondary, fontSize: sectionTitleFontSize }]}>Visual Style</Text>
           </View>
           <ThemeSelectorFeature />
+
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.textSecondary, fontSize: sectionTitleFontSize }]}>Active Connection</Text>
+          </View>
+          <View style={[styles.storageCard, { backgroundColor: colors.surface, borderColor: colors.border, padding: 16 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <MaterialCommunityIcons 
+                name={kioskMode === 'intern' ? 'database' : 'cloud'} 
+                size={24} 
+                color={Colors.powerOrange} 
+              />
+              <View>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                  {kioskMode === 'intern' ? 'MySQL Database (Intern Mode)' : 'Supabase Cloud (Employee Mode)'}
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 2 }}>
+                  {kioskMode === 'intern' ? 'Storage File: app_settings_intern.json' : 'Storage File: app_settings.json'}
+                </Text>
+              </View>
+            </View>
+          </View>
           
           <View style={styles.sectionHeader}>
             <Pressable onPress={handleHeaderTap}>
@@ -464,7 +495,9 @@ export default function Settings({ onBack }: Props) {
             </View>
             <View style={[styles.storageDivider, { backgroundColor: colors.border }]} />
             <Text style={[styles.storageSubtext, { color: colors.textSecondary, fontSize: storageSubtextFontSize }]}>
-              Includes saved employee lists, pictures, and attendance logs.
+              {kioskMode === 'intern' 
+                ? 'Includes saved intern lists, pictures, and attendance logs.' 
+                : 'Includes saved employee lists, pictures, and attendance logs.'}
             </Text>
           </View>
 
@@ -509,7 +542,9 @@ export default function Settings({ onBack }: Props) {
             
             <Text style={[styles.modalTitle, { color: colors.text, fontSize: modalTitleFontSize }]}>Clear Device Memory?</Text>
             <Text style={[styles.modalMessage, { color: colors.textSecondary, fontSize: modalMessageFontSize }]}>
-              This will permanently delete all saved logs and employee pictures from this device.
+              {kioskMode === 'intern' 
+                ? 'This will permanently delete all saved logs and intern pictures from this device.' 
+                : 'This will permanently delete all saved logs and employee pictures from this device.'}
               {'\n'}{'\n'}
               Internet connection will be needed to get this information back.
             </Text>
