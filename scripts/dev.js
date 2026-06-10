@@ -76,22 +76,24 @@ function updateConfigs(ip) {
 
 const activeProcesses = [];
 
-function startProcess(name, command, args, color, cwd = process.cwd()) {
+function startProcess(name, command, args, color, cwd = process.cwd(), customStdio = null) {
   console.log(`${colors.bright}${color}  ${name.toUpperCase()}  ${colors.reset} Starting...`);
   const proc = spawn(command, args, {
-    stdio: ['inherit', 'pipe', 'inherit'],
+    stdio: customStdio || ['inherit', 'pipe', 'inherit'],
     shell: true,
     cwd
   });
 
-  proc.stdout.on('data', (data) => {
-    const lines = data.toString().split('\n');
-    lines.forEach(line => {
-      if (line.trim()) {
-        process.stdout.write(`${color}[${name}]${colors.reset} ${line}\n`);
-      }
+  if (proc.stdout) {
+    proc.stdout.on('data', (data) => {
+      const lines = data.toString().split('\n');
+      lines.forEach(line => {
+        if (line.trim()) {
+          process.stdout.write(`${color}[${name}]${colors.reset} ${line}\n`);
+        }
+      });
     });
-  });
+  }
 
   activeProcesses.push(proc);
   return proc;
@@ -104,7 +106,7 @@ async function main() {
   const ip = getIPAddress();
   console.log(`${colors.blue}  [Network]${colors.reset} Detected IP: ${colors.bright}${ip}${colors.reset}`);
   updateConfigs(ip);
-  console.log(`${colors.magenta}-------------------------------------------------${colors.reset}\n`);
+  console.log(`${colors.cyan}-------------------------------------------------${colors.reset}\n`);
 
   console.log(`${colors.bright}SELECT COMPONENTS TO RUN:${colors.reset}`);
   console.log(`1. Full System (Backend + Face Server + Expo)`);
@@ -121,9 +123,10 @@ async function main() {
     const runPython = () => startProcess('face', '.venv\\Scripts\\python.exe', ['app.py'], colors.magenta, path.join(rootDir, 'intern_face_reg_server'));
     const runExpo = () => {
       rl.question(`\n${colors.cyan}EXPO OPTIONS:${colors.reset}\n1. Standard Launch\n2. Device Selection (--device)\nChoice: `, (expoChoice) => {
+        rl.close();
         const args = ['expo', 'run:android'];
         if (expoChoice === '2') args.push('--device');
-        startProcess('expo', 'npx', args, colors.bgGreen, rootDir);
+        startProcess('expo', 'npx', args, colors.bgGreen, rootDir, 'inherit');
       });
     };
 
@@ -134,23 +137,28 @@ async function main() {
         setTimeout(runExpo, 1000);
         break;
       case '2':
+        rl.close();
         runPhp();
         runPython();
         break;
       case '3':
+        rl.close();
         runPhp();
         break;
       case '4':
+        rl.close();
         runPython();
         break;
       case '5':
         runExpo();
         break;
       case '6':
+        rl.close();
         process.exit();
         break;
       default:
         console.log(`${colors.red}Invalid choice.${colors.reset}`);
+        rl.close();
         process.exit();
     }
   });
