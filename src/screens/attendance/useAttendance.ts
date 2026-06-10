@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Image as RNImage, Platform, ToastAndroid, useWindowDimensions } from 'react-native';
 import { BACKEND_URL } from '../../config/backend';
 import { enqueueOfflineAttendance, getOfflineAttendanceQueue, syncOfflineQueue } from '../../utils/offlineAttendance';
-import { resolveOfflineUserFromQr, upsertOfflineUserCacheUser } from '../../utils/offlineUsers';
+import { resolveOfflineUserFromQr, upsertOfflineUserCacheUser, updateOfflineUserCacheFromEmployees, mmkv } from '../../utils/offlineUsers';
 import { useTheme } from '../../config/theme';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { compareEmbeddings, compareMultiAngleEmbeddings, isMatch, MODEL_CONFIG } from '../../utils/face-embedding';
@@ -387,7 +387,28 @@ export function useAttendance() {
       .catch(e => console.error('[FaceEngine] Failed to load ONNX model:', e));
     return () => { active = false; };
   }, []);
-  
+
+  // Bootstrap: seed kiosk_mode and offline user cache on mount
+  const [kioskMode, setKioskMode] = useState<'employee' | 'intern'>(() => {
+    return (mmkv.getString('kiosk_mode') as 'employee' | 'intern') || 'employee';
+  });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/employees.php?page=1&limit=50`);
+        const payload = await response.json();
+        if (payload?.kiosk_mode) {
+          mmkv.set('kiosk_mode', payload.kiosk_mode);
+          setKioskMode(payload.kiosk_mode);
+        }
+        if (Array.isArray(payload?.data)) {
+          await updateOfflineUserCacheFromEmployees(payload.data, false);
+        }
+      } catch {}
+    })();
+  }, []);
+
 
   // Modal state
   const [showResultModal, setShowResultModal] = useState(false);
@@ -608,10 +629,10 @@ export function useAttendance() {
 
   const getImsUrl = useCallback(() => {
     try {
-      const parts = BACKEND_URL.split(':');
-      if (parts.length >= 2) {
-        return `${parts[0]}:${parts[1]}/ims`;
+      if (/:\d{4}$/.test(BACKEND_URL)) {
+        return BACKEND_URL.replace(/:\d{4}$/, ':8002');
       }
+      return `${BACKEND_URL}/ims`;
     } catch (e) {}
     return BACKEND_URL;
   }, []);
@@ -619,65 +640,7 @@ export function useAttendance() {
   // QR resolve
   const resolveUserFromQr = useCallback(async (qrData: string): Promise<ResolvedUser> => {
     try {
-      const isIntern = qrData.startsWith('TDTINTRN');
       const timestamp = Date.now();
-
-      if (isIntern) {
-        const internId = qrData.replace('TDTINTRN', '');
-        const imsUrl = getImsUrl();
-        const response = await fetch(`${imsUrl}/api/verify_intern_qr.php?id=${internId}&_t=${timestamp}`, {
-          headers: { 
-            'Accept': 'application/json', 
-            'ngrok-skip-browser-warning': 'true',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0'
-          },
-        });
-        const responseText = await response.text();
-        console.log('[QR] Intern Raw response', response.status, responseText?.slice?.(0, 200));
-        let payload: any = {};
-        try { payload = responseText ? JSON.parse(responseText) : {}; }
-        catch { throw new Error(`Server returned invalid response. Status: ${response.status}`); }
-        if (!response.ok || !payload?.ok) throw new Error(payload?.message || `Intern QR validation failed. Status: ${response.status}`);
-        
-        const user = {
-          userId: `intern_${payload.id}`,
-          username: `intern_${payload.id}`,
-          name: payload.name,
-          profile_picture: payload.profile_photo,
-          face: null,
-          face_embedding: payload.face_embedding,
-          role: 'intern',
-          department: 'Internship',
-          open_session: null,
-          isIntern: true,
-        };
-
-        try {
-          const cachedUser = await resolveOfflineUserFromQr(qrData);
-          if (cachedUser && cachedUser.profile_picture?.startsWith('file://') && cachedUser.profile_picture_remote === user.profile_picture) {
-            user.profile_picture = cachedUser.profile_picture;
-          }
-        } catch {}
-
-        setOfflineModeEnabled(false);
-        await upsertOfflineUserCacheUser({
-          userId: user.userId,
-          empId: user.userId,
-          username: user.username,
-          name: user.name ?? null,
-          qrCode: qrData,
-          profile_picture: user.profile_picture ?? null,
-          profile_picture_remote: payload.profile_photo ?? null,
-          role: user.role ?? null,
-          department: user.department ?? null,
-          face_embedding: user.face_embedding ?? null,
-          isIntern: true,
-        });
-
-        return user;
-      }
 
       // FORCE SYNC: Add timestamp to URL to bypass any server/proxy cache
       const response = await fetch(`${BACKEND_URL}/resolve_qr.php?qr=${encodeURIComponent(qrData)}&engine=camera_vision&_t=${timestamp}`, {
@@ -697,7 +660,7 @@ export function useAttendance() {
       if (!response.ok) throw new Error(payload?.message || `QR validation failed. Status: ${response.status}`);
       if (!payload?.ok || !payload?.user?.log_id) throw new Error(payload?.message || 'QR not recognized');
       
-      const user = {
+      const user: ResolvedUser = {
         userId: String(payload.user.log_id),
         username: String(payload.user.username || ''),
         name: payload.user.name ?? null,
@@ -707,6 +670,7 @@ export function useAttendance() {
         role: payload.user.role ?? null,
         department: payload.user.department ?? null,
         open_session: payload.user.open_session ?? null,
+        isIntern: payload.user.role?.toLowerCase() === 'intern' || String(payload.user.log_id).startsWith('intern_'),
       };
 
       try {
@@ -750,6 +714,7 @@ export function useAttendance() {
         role: user.role ?? null,
         department: user.department ?? null,
         face_embedding: user.face_embedding ?? null,
+        isIntern: user.isIntern,
       });
       return user;
     } catch (error) {
@@ -1883,6 +1848,7 @@ export function useAttendance() {
       setQrVerified(false);
       qrProcessingRef.current = false;
       setSelectedUser(null);
+      lastScanRef.current = { data: lastScanRef.current.data, ts: Date.now() + 3500 };
       showModal('qr_error', 'QR code not recognized', 'Make sure you are using a valid employee QR.', 2000);
     } finally {
       setIsQrLoading(false);
@@ -2115,7 +2081,7 @@ export function useAttendance() {
     formattedTime, formattedDate,
     isLoading, isVerifying, isQrLoading, isClockingOut, isCapturingHardware: uiCapturingHardware,
     qrVerified, qrSuccessLocal, selectedUser, clockInTime: displayClockInTime, faceCountdown,
-    touchlessEnabled, offlineModeEnabled, livenessEnabled, pendingSyncCount, isOnline,
+    touchlessEnabled, offlineModeEnabled, livenessEnabled, pendingSyncCount, isOnline, kioskMode,
     scanStage, cameraVisionFaceDetected, cameraVisionReadiness, cameraVisionFaceBox, cameraVisionAllFaces, cameraVisionFaceTelemetry, successAnimationTick,
     showResultModal, modalType, modalTitle, modalMessage: '', modalHint, livenessMessage,
     closeModal, handleAttendance, resetAttendanceFlow, backgroundLivenessPassed,
