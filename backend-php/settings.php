@@ -19,6 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     echo json_encode([
         'ok' => true,
         'settings' => settings_get_public_data(),
+        'kiosk_mode' => defined('KIOSK_MODE') ? KIOSK_MODE : 'employee'
     ]);
     exit;
 }

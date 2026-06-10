@@ -52,7 +52,17 @@ if ($detailId) {
                     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
                     $profilePhotoUrl = null;
                     if (!empty($row['profile_photo'])) {
-                        $profilePhotoUrl = "{$scheme}://{$host}/ims/uploads/photos/" . $row['profile_photo'];
+                        $imsUrl = getenv('IMS_URL') ?: null;
+                        if (!empty($imsUrl)) {
+                            $profilePhotoUrl = rtrim($imsUrl, '/') . "/uploads/photos/" . $row['profile_photo'];
+                        } else {
+                            if (preg_match('/:80\d\d$/', $host)) {
+                                $imsHost = preg_replace('/:80\d\d$/', ':8002', $host);
+                                $profilePhotoUrl = "{$scheme}://{$imsHost}/uploads/photos/" . $row['profile_photo'];
+                            } else {
+                                $profilePhotoUrl = "{$scheme}://{$host}/ims/uploads/photos/" . $row['profile_photo'];
+                            }
+                        }
                     }
                     
                     $faceEmbedding = null;
@@ -148,7 +158,8 @@ if ($detailId) {
         'status' => $status,
         'error' => $err ?: ($user === null ? 'User not found' : null),
         'user' => $user,
-        'profile_picture_hq' => $profile_picture_hq 
+        'profile_picture_hq' => $profile_picture_hq,
+        'kiosk_mode' => defined('KIOSK_MODE') ? KIOSK_MODE : 'employee'
     ]);
     exit;
 }
@@ -274,4 +285,5 @@ echo json_encode([
     'status' => $status,
     'error' => $err,
     'data' => $data,
+    'kiosk_mode' => defined('KIOSK_MODE') ? KIOSK_MODE : 'employee'
 ]);
