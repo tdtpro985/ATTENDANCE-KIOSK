@@ -1106,7 +1106,7 @@ export function useAttendance() {
       if (!isActuallyOffline) {
         try {
           console.log('[Attendance] Online: Attempting real-time recording...');
-          await recordAttendance(selectedUserRef.current!.userId, action, {
+          await recordAttendance(selectedUserRef.current!.userId, action, selectedUserRef.current!.isIntern ? {} : {
             ...locationData,
           });
           recordedOnline = true;
@@ -1126,7 +1126,7 @@ export function useAttendance() {
             date: localDate, 
             time: localTime,
             isIntern: selectedUserRef.current!.isIntern,
-            ...locationData
+            ...(selectedUserRef.current!.isIntern ? {} : locationData)
         });
         await refreshPendingSyncCount();
       }

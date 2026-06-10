@@ -242,10 +242,7 @@ if (strpos($userId, 'intern_') === 0 || (defined('KIOSK_MODE') && KIOSK_MODE ===
         'action' => $action,
         'date' => $providedDate ?: date('Y-m-d'),
         'time' => $providedTime ?: date('H:i:s'),
-        'is_offline' => $isOffline,
-        'latitude' => $lat,
-        'longitude' => $lng,
-        'address' => $address ?? null
+        'is_offline' => $isOffline
     ]));
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
     $proxy = getenv('HTTP_PROXY') ?: getenv('http_proxy') ?: null;
