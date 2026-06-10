@@ -215,7 +215,14 @@ if ($userId === '' || !in_array($action, ['clock_in', 'clock_out'], true)) {
     exit;
 }
 
-if (strpos($userId, 'intern_') === 0 || (defined('KIOSK_MODE') && KIOSK_MODE === 'intern') || (isset($body['isIntern']) && $body['isIntern'] === true)) {
+// Determine if this is an intern based on multiple hints
+$isIntern = (strpos($userId, 'intern_') === 0) || 
+            (defined('KIOSK_MODE') && KIOSK_MODE === 'intern') || 
+            (isset($body['isIntern']) && $body['isIntern'] === true);
+
+error_log("[Attendance Sync] Routing decision for user '{$userId}': " . ($isIntern ? 'INTERN' : 'EMPLOYEE'));
+
+if ($isIntern) {
     $numericId = (int)str_replace('intern_', '', $userId);
     $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
     $httpHost = $_SERVER['HTTP_HOST'] ?? 'localhost';
@@ -231,19 +238,23 @@ if (strpos($userId, 'intern_') === 0 || (defined('KIOSK_MODE') && KIOSK_MODE ===
     }
     
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, "{$imsUrl}/api/record_intern_attendance.php");
+    $targetApiUrl = "{$imsUrl}/api/record_intern_attendance.php";
+    curl_setopt($ch, CURLOPT_URL, $targetApiUrl);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     
     $isOffline = !empty($providedDate) && !empty($providedTime);
-    
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+    $payload = [
         'intern_id' => $numericId,
         'action' => $action,
         'date' => $providedDate ?: date('Y-m-d'),
         'time' => $providedTime ?: date('H:i:s'),
         'is_offline' => $isOffline
-    ]));
+    ];
+    
+    error_log("[Attendance Sync] Proxying to IMS: {$targetApiUrl} | Payload: " . json_encode($payload));
+    
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
     $proxy = getenv('HTTP_PROXY') ?: getenv('http_proxy') ?: null;
     if ($proxy) {

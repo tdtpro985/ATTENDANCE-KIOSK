@@ -1018,7 +1018,7 @@ export function useAttendance() {
     console.log(`[CameraVision] Verification gate blocked: ${reason}`);
   }, []);
 
-  const recordAttendance = useCallback(async (userId: string, action: 'clock_in' | 'clock_out', location: { address?: string; latitude?: number; longitude?: number } = {}) => {
+  const recordAttendance = useCallback(async (userId: string, action: 'clock_in' | 'clock_out', location: { address?: string; latitude?: number; longitude?: number; isIntern?: boolean } = {}) => {
     if (!userId) return;
     console.log('[Attendance] Recording', { userId, action, location });
     const payload = { 
@@ -1106,8 +1106,9 @@ export function useAttendance() {
       if (!isActuallyOffline) {
         try {
           console.log('[Attendance] Online: Attempting real-time recording...');
-          await recordAttendance(selectedUserRef.current!.userId, action, selectedUserRef.current!.isIntern ? {} : {
-            ...locationData,
+          await recordAttendance(selectedUserRef.current!.userId, action, {
+            ...(selectedUserRef.current!.isIntern ? {} : locationData),
+            isIntern: selectedUserRef.current!.isIntern,
           });
           recordedOnline = true;
           console.log('[Attendance] Real-time recording successful!');
