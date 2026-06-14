@@ -120,7 +120,7 @@ async function main() {
     const rootDir = path.resolve(__dirname, '..');
     
     const runPhp = () => startProcess('php', 'php', ['-S', '0.0.0.0:8000', '-t', 'backend-php/public'], colors.bgBlue, rootDir);
-    const runPython = () => startProcess('face', '.venv\\Scripts\\python.exe', ['-u', 'app.py'], colors.magenta, path.join(rootDir, 'intern_face_reg_server'));
+    const runPython = () => startProcess('intern-face-reg-server'.toUpperCase(), '.venv\\Scripts\\python.exe', ['-u', 'app.py'], colors.magenta, path.join(rootDir, 'intern_face_reg_server'));
     const runExpo = () => {
       rl.question(`\n${colors.cyan}EXPO OPTIONS:${colors.reset}\n1. Standard Launch\n2. Device Selection (--device)\nChoice: `, (expoChoice) => {
         rl.close();
