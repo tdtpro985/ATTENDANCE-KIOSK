@@ -7,7 +7,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { useFaceDetector } from 'react-native-vision-camera-face-detector';
 import { Worklets, useSharedValue } from 'react-native-worklets-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Image as RNImage, Platform, ToastAndroid, useWindowDimensions } from 'react-native';
+import { Alert, Animated, Image as RNImage, Platform, ToastAndroid, useWindowDimensions, NativeModules } from 'react-native';
 import { BACKEND_URL } from '../../config/backend';
 import { enqueueOfflineAttendance, getOfflineAttendanceQueue, syncOfflineQueue, syncOfflineItem } from '../../utils/offlineAttendance';
 import { resolveOfflineUserFromQr, upsertOfflineUserCacheUser, updateOfflineUserCacheFromEmployees, mmkv } from '../../utils/offlineUsers';
@@ -276,8 +276,8 @@ export function useAttendance() {
   const backDevice = useCameraDevice('back');
   const device = frontDevice ?? backDevice;
   const cameraFormat = useCameraFormat(device, [
-    { photoResolution: { width: 1920, height: 1080 } },
-    { videoResolution: { width: 1920, height: 1080 } }
+    { photoResolution: { width: 640, height: 480 }, videoResolution: { width: 1280, height: 720 } },
+    { photoResolution: { width: 1280, height: 720 }, videoResolution: { width: 1280, height: 720 } }
   ]);
   const cameraRef = useRef<Camera>(null);
 
@@ -759,10 +759,10 @@ export function useAttendance() {
 
     console.log('[CameraVision] Taking photo for embedding (buffalo_sc ONNX)...');
     if(!cameraRef.current) throw new Error('Camera not ready');
+    // @ts-ignore
     const photo = await cameraRef.current.takePhoto({
       flash: 'off',
       enableShutterSound: false,
-      enableAutoRedEyeReduction: false,
     });
     if (!photo?.path) throw new Error('No image captured');
 
@@ -853,12 +853,46 @@ export function useAttendance() {
 
       if (safeSize > 0) {
         try {
+          if (Platform.OS === 'android' && NativeModules.NativeFacePreprocessor) {
+            console.log('[CameraVision] Using NativeFacePreprocessor...');
+            const startNative = Date.now();
+            const base64Str = await NativeModules.NativeFacePreprocessor.preprocessFace(
+              photo.path,
+              {
+                x: originX / photoW,
+                y: originY / photoH,
+                width: safeSize / photoW,
+                height: safeSize / photoH,
+                isMirrored: device?.position === 'front',
+              },
+              photoW,
+              photoH
+            );
+            console.log(`[CameraVision] NativeFacePreprocessor completed in ${Date.now() - startNative}ms`);
+            const binaryString = global.atob(base64Str);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            const tensor = new Float32Array(bytes.buffer);
+            return await runOnnxAndNormalize(tensor);
+          }
+        } catch (e) {
+          console.warn('[CameraVision] NativeFacePreprocessor failed, falling back to ImageManipulator:', e);
+        }
+
+        try {
+          const actions: ImageManipulator.Action[] = [
+            { crop: { originX, originY, width: safeSize, height: safeSize } },
+            { resize: { width: 112, height: 112 } }
+          ];
+          if (device?.position === 'front') {
+            actions.push({ flip: ImageManipulator.FlipType.Horizontal });
+          }
           const manipResult = await ImageManipulator.manipulateAsync(
             imageToProcess,
-            [
-              { crop: { originX, originY, width: safeSize, height: safeSize } },
-              { resize: { width: 112, height: 112 } }
-            ],
+            actions,
             { format: ImageManipulator.SaveFormat.JPEG, compress: 0.95, base64: true }
           );
           imageToProcess = manipResult.uri;
@@ -1259,11 +1293,11 @@ export function useAttendance() {
             if (!liveEmbedding) liveEmbedding = embedding;
             break;
           }
-          if (attempt < 2) await new Promise(r => setTimeout(r, 200));
+          if (attempt < 2) await new Promise(r => setTimeout(r, 50));
         } catch (err) {
           console.log(`[CameraVision] Photo capture attempt ${attempt} failed:`, err);
           lastError = err;
-          if (attempt < 2) await new Promise(r => setTimeout(r, 100));
+          if (attempt < 2) await new Promise(r => setTimeout(r, 50));
         }
       }
       if (!liveEmbedding) throw lastError || new Error('Failed to capture face embedding');
