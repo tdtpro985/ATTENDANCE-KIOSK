@@ -30,15 +30,33 @@ module.exports = function withManualOnnxLinking(config) {
       );
     }
     
+    // Register custom NativeFacePreprocessorPackage
+    if (!contents.includes('add(NativeFacePreprocessorPackage())')) {
+      if (contents.includes('add(OnnxruntimePackage())')) {
+        contents = contents.replace(
+          'add(OnnxruntimePackage())',
+          'add(OnnxruntimePackage())\n              add(NativeFacePreprocessorPackage())'
+        );
+      } else {
+        // Fallback package injection
+        contents = contents.replace(
+          /PackageList\(this\)\.packages\.apply\s*\{/,
+          'PackageList(this).packages.apply {\n              add(NativeFacePreprocessorPackage())'
+        );
+      }
+    }
+    
     config.modResults.contents = contents;
     return config;
   });
 
-  // Automatically copy the ONNX model to Android assets folder
+  // Automatically copy files (ONNX model + Custom Kotlin Modules)
   config = withDangerousMod(config, [
     'android',
     (config) => {
       const projectRoot = config.modRequest.projectRoot;
+      
+      // 1. Copy ONNX Model
       const androidAssetsDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'assets');
       const sourceModelPath = path.join(projectRoot, 'assets', 'models', 'w600k_mbf.onnx');
       const destModelPath = path.join(androidAssetsDir, 'w600k_mbf.onnx');
@@ -49,8 +67,36 @@ module.exports = function withManualOnnxLinking(config) {
 
       if (fs.existsSync(sourceModelPath)) {
         fs.copyFileSync(sourceModelPath, destModelPath);
+        console.log('[withManualOnnxLinking] Successfully copied ONNX model to assets.');
       } else {
         console.warn('WARNING: ONNX model not found at ' + sourceModelPath);
+      }
+
+      // 2. Copy Custom Native Kotlin Modules
+      const srcNativeAndroidDir = path.join(projectRoot, 'src', 'native', 'android');
+      const destNativeAndroidDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'java', 'com', 'ams', 'attendanceapp');
+
+      if (fs.existsSync(srcNativeAndroidDir)) {
+        if (!fs.existsSync(destNativeAndroidDir)) {
+          fs.mkdirSync(destNativeAndroidDir, { recursive: true });
+        }
+        
+        const filesToCopy = [
+          'NativeFacePreprocessorModule.kt',
+          'NativeFacePreprocessorPackage.kt'
+        ];
+
+        filesToCopy.forEach((filename) => {
+          const srcFilePath = path.join(srcNativeAndroidDir, filename);
+          const destFilePath = path.join(destNativeAndroidDir, filename);
+          
+          if (fs.existsSync(srcFilePath)) {
+            fs.copyFileSync(srcFilePath, destFilePath);
+            console.log(`[withManualOnnxLinking] Successfully copied ${filename} to native android project.`);
+          } else {
+            console.warn(`WARNING: Custom native file not found at ${srcFilePath}`);
+          }
+        });
       }
       
       return config;
