@@ -10,6 +10,7 @@ import {
   Image,
   useWindowDimensions,
   TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -132,6 +133,7 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
   const shortDimension = Math.min(windowWidth, windowHeight);
   const isTablet = shortDimension >= 768;
   const isSmallTablet = shortDimension >= 480 && shortDimension < 768;
+  const useSplitLayout = isTablet || (isSmallTablet && windowWidth > windowHeight);
   const isPhone = shortDimension < 480;
 
   const [items, setItems] = useState<OfflineAttendanceItem[]>([]);
@@ -153,8 +155,6 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
 
   const cardHeight = isPhone ? 70 : isSmallTablet ? 74 : 80;
   const avatarSize = isPhone ? 40 : 48;
-  const columnWidth = isPhone ? 52 : 60;
-  const gridGap = isPhone ? 6 : 8;
 
   const headerFontSize = isTablet ? 24 : isSmallTablet ? 20 : 18;
   const subtitleFontSize = isTablet ? 14 : isSmallTablet ? 12 : 10;
@@ -329,11 +329,11 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
       if (isAvailable) {
         await Sharing.shareAsync(file.uri);
       } else {
-        alert('Sharing is not available on this device');
+        Alert.alert('Sharing', 'Sharing is not available on this device');
       }
     } catch (error) {
       console.error('Export error:', error);
-      alert('Failed to export data');
+      Alert.alert('Export Error', 'Failed to export data');
     }
   };
 
@@ -357,10 +357,10 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
     });
   }, [history, searchQuery, timeFilter]);
 
-  const DashboardWrapper = isTablet ? View : ScrollView;
+  const DashboardWrapper = useSplitLayout ? View : ScrollView;
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
       <View style={styles.mainHeader}>
         <View style={styles.headerLeftRow}>
           <Pressable
@@ -410,9 +410,9 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
       <DashboardWrapper
         style={[
           styles.dashboardContainer, 
-          isTablet ? styles.tabletRow : styles.mobileColumn
+          useSplitLayout ? styles.tabletRow : styles.mobileColumn
         ]}
-        {...(!isTablet ? {
+        {...(!useSplitLayout ? {
           contentContainerStyle: styles.mobileScrollContainer,
           showsVerticalScrollIndicator: false,
           refreshControl: (
@@ -425,11 +425,11 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
           )
         } : {})}
       >
-        {/*--------- LEFT PANEL: OFFLINE SYNC (The "Front" panel) -----------*/}
+        {/* Left Panel: Offline Sync Queue */}
         <View style={[
           styles.syncPanel, 
-          isTablet ? { 
-            flex: 0.6, 
+          useSplitLayout ? { 
+            flex: 0.5, 
             backgroundColor: theme === 'light' ? '#FFFFFF' : colors.surface, 
             borderRightWidth: 1, 
             borderRightColor: colors.border,
@@ -494,7 +494,7 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
             </Pressable>
           </View>
 
-          <ScrollView scrollEnabled={isTablet} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+          <ScrollView scrollEnabled={useSplitLayout} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
             {isLoading ? (
               <ActivityIndicator size="large" color={colors.accent} style={{marginTop: 40}} />
             ) : displayedItems.length ? (
@@ -588,11 +588,11 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
           </View>
         </View>
 
-        {/*--------- RIGHT PANEL: TODAY'S HISTORY (The "Back" panel) --------*/}
+        {/* Right Panel: Today's History */}
         <View style={[
           styles.historyPanel, 
-          isTablet ? { 
-            flex: 0.4, 
+          useSplitLayout ? { 
+            flex: 0.5, 
             backgroundColor: theme === 'light' ? '#F4F4F5' : colors.background, 
           } : {
             backgroundColor: theme === 'light' ? '#F4F4F5' : colors.background,
@@ -685,11 +685,11 @@ export default function OfflineSync({ onBack, onOpenScanner }: Props) {
           </View>
 
           <ScrollView
-            scrollEnabled={isTablet}
+            scrollEnabled={useSplitLayout}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             refreshControl={
-              isTablet ? (
+              useSplitLayout ? (
                 <RefreshControl
                   refreshing={isHistoryLoading}
                   onRefresh={loadHistory}

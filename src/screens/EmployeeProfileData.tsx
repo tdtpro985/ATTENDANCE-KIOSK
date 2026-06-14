@@ -26,21 +26,33 @@ function withAlpha(hexColor: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function parseId(val: string | number | null | undefined): string | number | null {
+  if (val === null || val === undefined || val === '') return null;
+  const num = Number(val);
+  return isNaN(num) ? val : num;
+}
+
+function parseIdOrZero(val: string | number | null | undefined): string | number {
+  if (val === null || val === undefined || val === '') return 0;
+  const num = Number(val);
+  return isNaN(num) ? val : num;
+}
+
 type SortOption = 'name_asc' | 'name_desc';
 
 type Account = {
-  log_id: number;
+  log_id: number | string;
   username: string | null;
   qr_code?: string | null;
   profile_picture?: string | null;
 };
 
 type EmployeeRow = {
-  emp_id: number;
+  emp_id: number | string;
   name: string;
   role: string | null;
   dept_id: number | null;
-  log_id: number | null;
+  log_id: number | string | null;
   accounts?: Account | Account[] | null;
   departments?: {
     name?: string | null;
@@ -72,7 +84,7 @@ function enrichEmployeesWithCache(data: EmployeeRow[]): EmployeeRow[] {
             const acc = normalizeAccount(emp.accounts);
             const isArr = Array.isArray(emp.accounts);
             const enrichedAcc = {
-              log_id: emp.log_id || acc?.log_id || Number(cached.userId) || 0,
+              log_id: emp.log_id || acc?.log_id || parseIdOrZero(cached.userId),
               username: acc?.username ?? cached.username ?? null,
               qr_code: acc?.qr_code ?? cached.qrCode ?? null,
               profile_picture: cached.profile_picture
@@ -229,7 +241,7 @@ export default function EmployeeProfileData({ onBack }: Props) {
           const isArr = Array.isArray(emp.accounts);
           const enrichedAcc: Account = {
             ...(acc ?? {}),
-            log_id: logId || Number(userId) || 0,
+            log_id: logId || parseIdOrZero(userId),
             username: acc?.username ?? null,
             profile_picture: localUri
           };
@@ -469,13 +481,13 @@ export default function EmployeeProfileData({ onBack }: Props) {
           const mapped: EmployeeRow[] = cached
             .filter(u => u !== null && typeof u === 'object')
             .map(u => ({
-              emp_id: Number(u.empId) || 0,
+              emp_id: parseIdOrZero(u.empId),
               name: u.name || '',
               role: u.role || null,
               dept_id: null,
-              log_id: Number(u.userId) || null,
+              log_id: parseId(u.userId),
               accounts: {
-                log_id: Number(u.userId) || 0,
+                log_id: parseIdOrZero(u.userId),
                 username: u.username,
                 qr_code: u.qrCode,
                 profile_picture: u.profile_picture
