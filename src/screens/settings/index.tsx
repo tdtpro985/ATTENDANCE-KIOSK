@@ -443,7 +443,7 @@ export default function Settings({ onBack }: Props) {
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.textSecondary, fontSize: sectionTitleFontSize }]}>Active Connection</Text>
           </View>
-          <View style={[styles.storageCard, { backgroundColor: colors.surface, borderColor: colors.border, padding: 16 }]}>
+          <View style={[styles.storageCard, { backgroundColor: theme === 'light' ? '#f3f4f6' : colors.background, borderColor: colors.border, padding: 16 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <MaterialCommunityIcons 
                 name={kioskMode === 'intern' ? 'database' : 'cloud'} 
