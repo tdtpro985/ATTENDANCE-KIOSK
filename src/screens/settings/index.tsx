@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, Modal, Animated, useWindowDimensions } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View, /* Modal, */ Animated, useWindowDimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BACKEND_URL } from '../../config/backend';
@@ -8,13 +8,10 @@ import { useTheme, Colors } from '../../config/theme';
 
 import { TouchlessModeFeature } from './features/TouchlessModeFeature';
 import { SyncLocationFeature } from './features/SyncLocationFeature';
-import { AdminAccessFeature } from './features/AdminAccessFeature';
-import { OfflineRedundancyFeature } from './features/OfflineRedundancyFeature';
 import { ThemeSelectorFeature } from './features/ThemeSelectorFeature';
 import { LivenessCheckFeature } from './features/LivenessCheckFeature';
 import { AutoSyncFeature } from './features/AutoSyncFeature';
-import { SettingRow } from './components/SettingRow';
-import { mmkv } from '../../utils/offlineUsers';
+import { mmkv /*, clearOfflineUserCache */ } from '../../utils/offlineUsers';
 
 const TOUCHLESS_SETTING_KEY = 'settings_touchless_enabled';
 const AUTO_SYNC_SETTING_KEY = 'settings_auto_sync_enabled';
@@ -52,6 +49,29 @@ let settingsHasLoadedOnce = false;
 export default function Settings({ onBack }: Props) {
   const { colors, theme } = useTheme();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+
+  const [isLoading, setIsLoading] = useState(!settingsHasLoadedOnce);
+  const [touchlessEnabled, setTouchlessEnabled] = useState(false);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
+  const [kioskMode, setKioskMode] = useState<'employee' | 'intern'>(() => {
+    return (mmkv.getString('kiosk_mode') as 'employee' | 'intern') || 'employee';
+  });
+  const [livenessEnabled, setLivenessEnabled] = useState(true);
+  const [backendSettings, setBackendSettings] = useState<BackendSettings>({
+    attendance_location: {
+      latitude: 14.6130261,
+      longitude: 120.9937274,
+    },
+    attendance_interval_minutes: 5,
+  });
+  // const [storageSize, setStorageSize] = useState<string>('0 KB');
+  const [logoutTapCount, setLogoutTapCount] = useState(0);
+  const [showLogout, setShowLogout] = useState(false);
+  // const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+
+  // Shimmer animation for loading skeletons
+  const shimmerTranslate = useRef(new Animated.Value(-1)).current;
+
   const shortDimension = Math.min(windowWidth, windowHeight);
   const isTablet = shortDimension >= 768;
   const isSmallTablet = shortDimension >= 480 && shortDimension < 768;
@@ -60,27 +80,16 @@ export default function Settings({ onBack }: Props) {
   const headerTitleFontSize = isTablet ? 24 : isSmallTablet ? 20 : 18;
   const headerSubtitleFontSize = isTablet ? 14 : isSmallTablet ? 12 : 10;
   const sectionTitleFontSize = isTablet ? 12 : isSmallTablet ? 11 : 10;
-  const storageLabelFontSize = isTablet ? 11 : isSmallTablet ? 10 : 9;
-  const storageValueFontSize = isTablet ? 28 : isSmallTablet ? 23 : 18;
-  const storageSubtextFontSize = isTablet ? 13 : isSmallTablet ? 11 : 10;
-  const wipeButtonTextFontSize = isTablet ? 12 : isSmallTablet ? 11 : 10;
+  // const storageLabelFontSize = isTablet ? 11 : isSmallTablet ? 10 : 9;
+  // const storageValueFontSize = isTablet ? 28 : isSmallTablet ? 23 : 18;
+  // const storageSubtextFontSize = isTablet ? 13 : isSmallTablet ? 11 : 10;
+  // const wipeButtonTextFontSize = isTablet ? 12 : isSmallTablet ? 11 : 10;
   const logoutTitleFontSize = isTablet ? 18 : isSmallTablet ? 15 : 13;
   const logoutSubtitleFontSize = isTablet ? 13 : isSmallTablet ? 11 : 10;
-  const modalTitleFontSize = isTablet ? 24 : isSmallTablet ? 20 : 16;
-  const modalMessageFontSize = isTablet ? 15 : isSmallTablet ? 13 : 11;
-  const modalPrimaryBtnTextFontSize = isTablet ? 15 : isSmallTablet ? 13 : 11;
-  const modalSecondaryBtnTextFontSize = isTablet ? 14 : isSmallTablet ? 12 : 10;
-
-  const [isLoading, setIsLoading] = useState(!settingsHasLoadedOnce);
-  const [touchlessEnabled, setTouchlessEnabled] = useState(false);
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
-  const [isOnline, setIsOnline] = useState(true);
-  const [kioskMode, setKioskMode] = useState<'employee' | 'intern'>(() => {
-    return (mmkv.getString('kiosk_mode') as 'employee' | 'intern') || 'employee';
-  });
-
-  // Shimmer animation for loading skeletons
-  const shimmerTranslate = useRef(new Animated.Value(-1)).current;
+  // const modalTitleFontSize = isTablet ? 24 : isSmallTablet ? 20 : 16;
+  // const modalMessageFontSize = isTablet ? 15 : isSmallTablet ? 13 : 11;
+  // const modalPrimaryBtnTextFontSize = isTablet ? 15 : isSmallTablet ? 13 : 11;
+  // const modalSecondaryBtnTextFontSize = isTablet ? 14 : isSmallTablet ? 12 : 10;
 
   useEffect(() => {
     if (isLoading) {
@@ -95,18 +104,6 @@ export default function Settings({ onBack }: Props) {
       shimmerTranslate.setValue(-1);
     }
   }, [isLoading, shimmerTranslate]);
-  const [livenessEnabled, setLivenessEnabled] = useState(true);
-  const [backendSettings, setBackendSettings] = useState<BackendSettings>({
-    attendance_location: {
-      latitude: 14.6130261,
-      longitude: 120.9937274,
-    },
-    attendance_interval_minutes: 5,
-  });
-  const [storageSize, setStorageSize] = useState<string>('0 KB');
-  const [logoutTapCount, setLogoutTapCount] = useState(0);
-  const [showLogout, setShowLogout] = useState(false);
-  const [showWipeConfirm, setShowWipeConfirm] = useState(false);
 
   const handleHeaderTap = useCallback(() => {
     const newCount = logoutTapCount + 1;
@@ -118,6 +115,7 @@ export default function Settings({ onBack }: Props) {
     }
   }, [logoutTapCount]);
 
+  /*
   const calculateStorageSize = useCallback(async () => {
     try {
       const keys = await AsyncStorage.getAllKeys();
@@ -136,6 +134,7 @@ export default function Settings({ onBack }: Props) {
       console.log('Failed to calculate storage size', e);
     }
   }, []);
+  */
 
   const loadSettings = useCallback(async () => {
     try {
@@ -154,11 +153,10 @@ export default function Settings({ onBack }: Props) {
       setLivenessEnabled(localSettings['settings_liveness_enabled'] !== 'false');
       setAutoSyncEnabled(localSettings[AUTO_SYNC_SETTING_KEY] !== 'false');
 
-      calculateStorageSize();
+      // calculateStorageSize();
 
       const payload = await response.json();
       if (payload?.ok) {
-        setIsOnline(true);
         setBackendSettings((prev) => ({
           ...prev,
           ...payload.settings,
@@ -167,29 +165,26 @@ export default function Settings({ onBack }: Props) {
           mmkv.set('kiosk_mode', payload.kiosk_mode);
           setKioskMode(payload.kiosk_mode);
         }
-      } else {
-        setIsOnline(false);
       }
     } catch (error: any) {
       console.log('Settings load error', error);
-      setIsOnline(false);
     } finally {
       setIsLoading(false);
       settingsHasLoadedOnce = true;
     }
-  }, [calculateStorageSize]);
+  }, [/* calculateStorageSize */]);
 
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
 
+  /*
   const confirmWipe = async () => {
     setShowWipeConfirm(false);
-    // Commented out to prevent accidental database wipe
-    /*
     setIsLoading(true);
     try {
       await AsyncStorage.clear();
+      await clearOfflineUserCache();
       await calculateStorageSize();
       Alert.alert('Success', 'Device memory has been cleared.');
     } catch (e) {
@@ -197,13 +192,12 @@ export default function Settings({ onBack }: Props) {
     } finally {
       setIsLoading(false);
     }
-    */
-    Alert.alert('Notice', 'Clear Data is temporarily disabled.');
   };
 
   const handleWipeCache = useCallback(() => {
     setShowWipeConfirm(true);
   }, []);
+  */
 
   const handleTouchlessChange = useCallback(async (value: boolean) => {
     setTouchlessEnabled(value);
@@ -231,7 +225,6 @@ export default function Settings({ onBack }: Props) {
       setAutoSyncEnabled(!value);
     }
   }, []);
-
 
   const saveBackendSettings = useCallback(async (body: Record<string, any>) => {
     const response = await fetch(`${BACKEND_URL}/settings.php`, {
@@ -340,7 +333,6 @@ export default function Settings({ onBack }: Props) {
 
         <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
           <View style={styles.sectionContainer}>
-            {/* Device Options Title Skeleton */}
             <View style={styles.sectionHeader}>
               <View style={{ width: 140, height: 14, borderRadius: 4, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
                 <Animated.View style={getShimmerStyle(100)} />
@@ -351,7 +343,6 @@ export default function Settings({ onBack }: Props) {
               {[1, 2, 3, 4, 5].map((i) => <SettingRowSkeleton key={i} />)}
             </View>
 
-            {/* Visual Style Title Skeleton */}
             <View style={styles.sectionHeader}>
               <View style={{ width: 120, height: 14, borderRadius: 4, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
                 <Animated.View style={getShimmerStyle(100)} />
@@ -371,14 +362,12 @@ export default function Settings({ onBack }: Props) {
               </View>
             </View>
 
-            {/* Device Memory Title Skeleton */}
             <View style={styles.sectionHeader}>
               <View style={{ width: 155, height: 14, borderRadius: 4, backgroundColor: theme === 'light' ? '#e5e7eb' : '#424242', overflow: 'hidden', position: 'relative' }}>
                 <Animated.View style={getShimmerStyle(100)} />
               </View>
             </View>
 
-            {/* Device Storage Card Skeleton */}
             <View style={[styles.storageCard, { backgroundColor: colors.surface, borderColor: colors.border, overflow: 'hidden', position: 'relative' }]}>
               <View style={styles.storageMainRow}>
                 <View style={styles.storageInfoBlock}>
@@ -444,8 +433,6 @@ export default function Settings({ onBack }: Props) {
                 saveBackendSettings={saveBackendSettings}
               />
             )}
-            {/* <AdminAccessFeature saveBackendSettings={saveBackendSettings} /> */}
-            <OfflineRedundancyFeature isOnline={isOnline} />
           </View>
 
           <View style={styles.sectionHeader}>
@@ -465,7 +452,7 @@ export default function Settings({ onBack }: Props) {
               />
               <View>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
-                  {kioskMode === 'intern' ? 'MySQL Database (Intern Mode)' : 'Supabase Cloud (Employee Mode)'}
+                  {kioskMode === 'intern' ? 'MySQL (Intern Management System)' : 'Supabase Cloud (Employee Mode)'}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 2 }}>
                   {kioskMode === 'intern' ? 'Storage File: app_settings_intern.json' : 'Storage File: app_settings.json'}
@@ -474,11 +461,13 @@ export default function Settings({ onBack }: Props) {
             </View>
           </View>
           
-          <View style={styles.sectionHeader}>
+          {/* -----------------!!temporarily hide storage info!!----------------- */}
+          {/* <View style={styles.sectionHeader}>
             <Pressable onPress={handleHeaderTap}>
               <Text style={[styles.sectionTitle, { color: colors.textSecondary, fontSize: sectionTitleFontSize }]}>Device Storage</Text>
             </Pressable>
-          </View>
+          </View> */}
+          {/*
           <View style={[styles.storageCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.storageMainRow}>
               <View style={styles.storageInfoBlock}>
@@ -505,6 +494,7 @@ export default function Settings({ onBack }: Props) {
                 : 'Includes saved employee lists, pictures, and attendance logs.'}
             </Text>
           </View>
+          */}
 
           {showLogout && (
             <View style={[styles.logoutSection, { borderTopColor: colors.border }]}>
@@ -533,6 +523,7 @@ export default function Settings({ onBack }: Props) {
       </ScrollView>
 
       {/* CUSTOM CONFIRMATION MODAL */}
+      {/*
       <Modal
         visible={showWipeConfirm}
         transparent
@@ -578,6 +569,7 @@ export default function Settings({ onBack }: Props) {
           </View>
         </View>
       </Modal>
+      */}
     </SafeAreaView>
   );
 }
@@ -585,11 +577,6 @@ export default function Settings({ onBack }: Props) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-  },
-  loadingWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   header: {
     paddingHorizontal: 24,
