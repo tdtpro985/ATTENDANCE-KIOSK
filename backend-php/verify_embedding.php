@@ -24,6 +24,22 @@ $liveEmbeddingRaw = $input['live_embedding'] ?? null;
 $liveImageB64 = $input['live_image_b64'] ?? null;
 $engine = isset($input['engine']) ? trim((string) $input['engine']) : '';
 
+if ($userId === 'warmup') {
+    if ($liveImageB64) {
+        $ch = curl_init('http://localhost:5001/embed_single');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['image' => $liveImageB64]));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+        curl_exec($ch);
+        curl_close($ch);
+    }
+    http_response_code(200);
+    echo json_encode(['ok' => true, 'message' => 'Warmup completed.']);
+    exit;
+}
+
 if (!$userId) {
     http_response_code(400);
     echo json_encode(['ok' => false, 'message' => 'Missing parameter (log_id)']);
