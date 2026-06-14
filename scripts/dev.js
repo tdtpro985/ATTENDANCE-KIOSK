@@ -47,21 +47,38 @@ function getIPAddress() {
 function updateConfigs(ip) {
   const rootDir = path.join(__dirname, '..');
   
-  // 1. Update Frontend backend.ts
-  const tsPath = path.join(rootDir, 'src/config/backend.ts');
-  const tsContent = `const IP_ADDRESS = '${ip}';\nexport const BACKEND_URL = \`http://\${IP_ADDRESS}:8000\`;\n`;
-  fs.writeFileSync(tsPath, tsContent);
-  console.log(`${colors.green}  [Config]${colors.reset} Updated src/config/backend.ts -> ${ip}:8000`);
+  // 1. Update root .env with Expo public env var prefix
+  const rootEnvPath = path.join(rootDir, '.env');
+  let rootEnvLines = [];
+  if (fs.existsSync(rootEnvPath)) {
+    rootEnvLines = fs.readFileSync(rootEnvPath, 'utf8').split(/\r?\n/);
+  }
+  let rootUpdated = false;
+  const newIpLine = `EXPO_PUBLIC_BACKEND_IP=${ip}`;
+  
+  rootEnvLines = rootEnvLines.map(line => {
+    if (line.trim().startsWith('EXPO_PUBLIC_BACKEND_IP=')) {
+      rootUpdated = true;
+      return newIpLine;
+    }
+    return line;
+  });
+  
+  if (!rootUpdated) {
+    rootEnvLines.push(newIpLine);
+  }
+  fs.writeFileSync(rootEnvPath, rootEnvLines.join('\n'));
+  console.log(`${colors.green}  [Config]${colors.reset} Updated root .env -> EXPO_PUBLIC_BACKEND_IP=${ip}`);
 
   // 2. Update Backend .env
   const envPath = path.join(rootDir, 'backend-php/.env');
   if (fs.existsSync(envPath)) {
-    let envLines = fs.readFileSync(envPath, 'utf8').split('\n');
+    let envLines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
     let updated = false;
     const newImsUrl = `IMS_URL=http://${ip}:8001`;
     
     envLines = envLines.map(line => {
-      if (line.startsWith('IMS_URL=')) {
+      if (line.trim().startsWith('IMS_URL=')) {
         updated = true;
         return newImsUrl;
       }
