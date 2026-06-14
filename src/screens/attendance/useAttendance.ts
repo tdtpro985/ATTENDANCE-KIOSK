@@ -2024,6 +2024,25 @@ export function useAttendance() {
            }
            console.log('[QR] Background sync complete. Updated user data for:', resolved.username);
            
+           // Double check if live embedding differs from cached representation to overwrite cache and swap target on-the-fly
+           const cacheMatch = cachedUser && cachedUser.face_embedding === resolved.face_embedding;
+           if (!cacheMatch) {
+             console.log('[QR] Face embedding changed on server. Updating local cache and target Ref.');
+             await upsertOfflineUserCacheUser({
+               userId: resolved.userId,
+               empId: resolved.userId,
+               username: resolved.username,
+               name: resolved.name ?? null,
+               qrCode: data,
+               profile_picture: resolved.profile_picture ?? null,
+               profile_picture_remote: resolved.profile_picture ?? null,
+               role: resolved.role ?? null,
+               department: resolved.department ?? null,
+               face_embedding: resolved.face_embedding ?? null,
+               isIntern: resolved.isIntern,
+             });
+           }
+
            // Update the selected user with the fresh data from the server (including face_embedding)
            setSelectedUser(resolved);
            setWelcomeName(resolved.name || resolved.username || 'Employee');
