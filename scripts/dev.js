@@ -47,30 +47,32 @@ function getIPAddress() {
 function updateConfigs(ip) {
   const rootDir = path.join(__dirname, '..');
   
-  // 1. Update Frontend backend.ts
-  const tsPath = path.join(rootDir, 'src/config/backend.ts');
-  const tsContent = `const IP_ADDRESS = '${ip}';\nexport const BACKEND_URL = \`http://\${IP_ADDRESS}:8000\`;\n`;
-  fs.writeFileSync(tsPath, tsContent);
-  console.log(`${colors.green}  [Config]${colors.reset} Updated src/config/backend.ts -> ${ip}:8000`);
-
-  // 2. Update Backend .env
+  // Update Backend .env
   const envPath = path.join(rootDir, 'backend-php/.env');
   if (fs.existsSync(envPath)) {
-    let envLines = fs.readFileSync(envPath, 'utf8').split('\n');
-    let updated = false;
+    let envLines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+    let imsUpdated = false;
+    let ipUpdated = false;
     const newImsUrl = `IMS_URL=http://${ip}:8001`;
+    const newIpLine = `EXPO_PUBLIC_BACKEND_IP=${ip}`;
     
     envLines = envLines.map(line => {
-      if (line.startsWith('IMS_URL=')) {
-        updated = true;
+      const trimmed = line.trim();
+      if (trimmed.startsWith('IMS_URL=')) {
+        imsUpdated = true;
         return newImsUrl;
+      }
+      if (trimmed.startsWith('EXPO_PUBLIC_BACKEND_IP=')) {
+        ipUpdated = true;
+        return newIpLine;
       }
       return line;
     });
     
-    if (!updated) envLines.push(newImsUrl);
+    if (!imsUpdated) envLines.push(newImsUrl);
+    if (!ipUpdated) envLines.push(newIpLine);
     fs.writeFileSync(envPath, envLines.join('\n'));
-    console.log(`${colors.green}  [Config]${colors.reset} Updated backend-php/.env -> IMS_URL=${ip}:8001`);
+    console.log(`${colors.green}  [Config]${colors.reset} Updated backend-php/.env -> IMS_URL=${ip}:8001 & EXPO_PUBLIC_BACKEND_IP=${ip}`);
   }
 }
 
@@ -78,10 +80,28 @@ const activeProcesses = [];
 
 function startProcess(name, command, args, color, cwd = process.cwd(), customStdio = null) {
   console.log(`${colors.bright}${color}  ${name.toUpperCase()}  ${colors.reset} Starting...`);
+  
+  const customEnv = { ...process.env };
+  const rootDir = path.resolve(__dirname, '..');
+  const envPath = path.join(rootDir, 'backend-php/.env');
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('EXPO_PUBLIC_')) {
+        const parts = trimmed.split('=', 2);
+        if (parts.length === 2) {
+          customEnv[parts[0].trim()] = parts[1].trim();
+        }
+      }
+    });
+  }
+
   const proc = spawn(command, args, {
     stdio: customStdio || ['inherit', 'pipe', 'inherit'],
     shell: true,
-    cwd
+    cwd,
+    env: customEnv
   });
 
   if (proc.stdout) {
