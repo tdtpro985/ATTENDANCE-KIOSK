@@ -171,12 +171,12 @@ function isFaceBoxUsableForRecognition(faceBox: NormalizedFaceBox, face?: any): 
   if (faceBox.x + faceBox.width > 0.995 || faceBox.y + faceBox.height > 0.995) return false;
   if (centerX < 0.14 || centerX > 0.86 || centerY < 0.14 || centerY > 0.86) return false;
 
-  // Frontal gate (Pose check - tightened from 18 to 14 to avoid bad verification angles)
+  // Frontal gate (Pose check - aligned with registration standards and euler fallbacks)
   if (face) {
-    const yaw = face?.yawAngle ?? 0;
-    const pitch = face?.pitchAngle ?? 0;
-    const roll = face?.rollAngle ?? 0;
-    if (Math.abs(yaw) > 14 || Math.abs(pitch) > 14 || Math.abs(roll) > 14) return false;
+    const yaw = face?.yawAngle ?? face?.eulerY ?? face?.headEulerAngleY ?? 0;
+    const pitch = face?.pitchAngle ?? face?.eulerX ?? face?.headEulerAngleX ?? 0;
+    const roll = face?.rollAngle ?? face?.eulerZ ?? face?.headEulerAngleZ ?? 0;
+    if (Math.abs(yaw) > 15 || Math.abs(pitch) > 15 || Math.abs(roll) > 15) return false;
   }
 
   return true;
@@ -424,6 +424,8 @@ export function useAttendance() {
   const scanLineAnim = useRef(new Animated.Value(0)).current;
   const flashAnim = useRef(new Animated.Value(0)).current;
   const [snapSound, setSnapSound] = useState<Audio.Sound | null>(null);
+  const qrSoundRef = useRef<Audio.Sound | null>(null);
+  const faceSuccessSoundRef = useRef<Audio.Sound | null>(null);
 
   // Liveness detection
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -446,6 +448,48 @@ export function useAttendance() {
     try {
       if (snapSound) await snapSound.replayAsync();
     } catch { }
+  };
+
+  const playQrSound = async () => {
+    try {
+      if (qrSoundRef.current) {
+        const status = await qrSoundRef.current.getStatusAsync();
+        if (!status.isLoaded) {
+          await qrSoundRef.current.loadAsync(require('../../../assets/audio/qr_scan.wav'), { volume: 1.0, shouldPlay: false });
+        }
+        await qrSoundRef.current.replayAsync();
+      } else {
+        const { sound } = await Audio.Sound.createAsync(
+          require('../../../assets/audio/qr_scan.wav'),
+          { volume: 1.0, shouldPlay: false }
+        );
+        qrSoundRef.current = sound;
+        await sound.replayAsync();
+      }
+    } catch (e) {
+      console.log('[Audio] QR sound play/heal failed:', e);
+    }
+  };
+
+  const playSuccessSound = async () => {
+    try {
+      if (faceSuccessSoundRef.current) {
+        const status = await faceSuccessSoundRef.current.getStatusAsync();
+        if (!status.isLoaded) {
+          await faceSuccessSoundRef.current.loadAsync(require('../../../assets/audio/face_scan.wav'), { volume: 1.0, shouldPlay: false });
+        }
+        await faceSuccessSoundRef.current.replayAsync();
+      } else {
+        const { sound } = await Audio.Sound.createAsync(
+          require('../../../assets/audio/face_scan.wav'),
+          { volume: 1.0, shouldPlay: false }
+        );
+        faceSuccessSoundRef.current = sound;
+        await sound.replayAsync();
+      }
+    } catch (e) {
+      console.log('[Audio] Success sound play/heal failed:', e);
+    }
   };
 
   const showOfflineToast = useCallback(() => {
@@ -888,7 +932,10 @@ export function useAttendance() {
             const tensor = new Float32Array(bytes.buffer);
             return await runOnnxAndNormalize(tensor);
           }
-        } catch (e) {
+        } catch (e: any) {
+          if (e?.code === 'PREPROCESS_TOO_DARK' || e?.code === 'PREPROCESS_TOO_BLURRY') {
+            throw e;
+          }
           console.warn('[CameraVision] NativeFacePreprocessor failed, falling back to ImageManipulator:', e);
         }
 
@@ -1314,6 +1361,7 @@ export function useAttendance() {
           }
 
           setScanStage('success');
+          playSuccessSound();
           setSuccessAnimationTick((prev) => prev + 1);
           
           setTimeout(async () => {
@@ -1356,6 +1404,7 @@ export function useAttendance() {
       }
 
       setScanStage('success');
+      playSuccessSound();
       setSuccessAnimationTick((prev) => prev + 1);
       
       setTimeout(async () => {
@@ -1489,7 +1538,16 @@ export function useAttendance() {
       identityStatusRef.current = 'failed';
       modalContextRef.current = 'face_error';
       setScanStage('idle');
-      showModal('camera_error', 'Camera could not capture', 'Make sure nothing is blocking the lens.', 2000);
+      let title = 'Camera could not capture';
+      let message = 'Make sure nothing is blocking the lens.';
+      if (e?.code === 'PREPROCESS_TOO_DARK') {
+        title = 'Too dark';
+        message = 'Move to a well-lit area.';
+      } else if (e?.code === 'PREPROCESS_TOO_BLURRY') {
+        title = 'Image was blurry';
+        message = 'Please hold still.';
+      }
+      showModal('camera_error', title, message, 2000);
       return;
     }
 
@@ -1535,7 +1593,7 @@ export function useAttendance() {
         faceProcessingRef.current = false; // reset so touchless can auto-retry
         modalContextRef.current = 'face_error';
         setScanStage('idle');
-        showModal('face_error', 'Face not recognized', result?.hint || 'Ensure good lighting and try again.', 2000);
+        showModal('face_error', result?.message || 'Face not recognized', result?.hint || 'Ensure good lighting and try again.', 2000);
       }
     } catch (e: any) {
       identityStatusRef.current = 'failed';
@@ -1933,7 +1991,7 @@ export function useAttendance() {
     lastScanRef.current = { data, ts: now };
     touchlessTriggeredRef.current = false;
     cameraVisionAutoTriggeredRef.current = false;
-    playSnapSound();
+    playQrSound();
     Animated.sequence([
       Animated.timing(flashAnim, { toValue: 1, duration: 50, useNativeDriver: true }),
       Animated.timing(flashAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
@@ -2127,14 +2185,40 @@ export function useAttendance() {
 
   // Effects
   useEffect(() => {
+    let activeSnapSound: Audio.Sound | null = null;
     async function loadSound() {
       try {
         const { sound } = await Audio.Sound.createAsync({ uri: 'https://www.soundjay.com/camera/camera-shutter-click-08.mp3' });
+        activeSnapSound = sound;
         setSnapSound(sound);
       } catch { }
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: false,
+          playThroughEarpieceAndroid: false,
+        });
+        const { sound: qrSound } = await Audio.Sound.createAsync(
+          require('../../../assets/audio/qr_scan.wav'),
+          { volume: 1.0, shouldPlay: false }
+        );
+        qrSoundRef.current = qrSound;
+        const { sound: faceSound } = await Audio.Sound.createAsync(
+          require('../../../assets/audio/face_scan.wav'),
+          { volume: 1.0, shouldPlay: false }
+        );
+        faceSuccessSoundRef.current = faceSound;
+      } catch (err) {
+        console.log('[Audio] Failed to load custom audio assets:', err);
+      }
     }
     loadSound();
-    return () => { if (snapSound) snapSound.unloadAsync(); };
+    return () => {
+      if (activeSnapSound) (activeSnapSound as Audio.Sound).unloadAsync();
+      if (qrSoundRef.current) qrSoundRef.current.unloadAsync();
+      if (faceSuccessSoundRef.current) faceSuccessSoundRef.current.unloadAsync();
+    };
   }, []);
 
   useEffect(() => {

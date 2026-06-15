@@ -55,6 +55,18 @@ def get_embedding_from_bgr(img_bgr: np.ndarray, padding=1.5):
     if face_crop.size == 0:
         return None, 'no_face'
 
+    face_gray = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+    
+    # Perceived brightness check (avg pixel value < 50)
+    brightness = np.mean(face_gray)
+    if brightness < 50:
+        return None, 'too_dark'
+        
+    # Laplacian variance blur check (variance < 50)
+    variance = cv2.Laplacian(face_gray, cv2.CV_64F).var()
+    if variance < 50:
+        return None, 'too_blurry'
+
     face_resized = cv2.resize(face_crop, (112, 112))
     face_rgb = cv2.cvtColor(face_resized, cv2.COLOR_BGR2RGB)
 
@@ -106,7 +118,11 @@ def get_embeddings():
             embedding, err = get_embedding_from_bgr(img, padding=pad_amount)
 
             if err == 'no_face':
-                return jsonify({'success': False, 'ok': False, 'error': f'No face detected in image {idx+1}. Ensure face is clear and well-lit.'}), 400
+                return jsonify({'success': False, 'ok': False, 'error': f'No face detected in image {idx+1}. Ensure face is clear.'}), 400
+            if err == 'too_dark':
+                return jsonify({'success': False, 'ok': False, 'error': f'Image {idx+1} is too dark. Move to a well-lit area.'}), 400
+            if err == 'too_blurry':
+                return jsonify({'success': False, 'ok': False, 'error': f'Image {idx+1} was blurry. Please hold still.'}), 400
             if err == 'multiple':
                 return jsonify({'success': False, 'ok': False, 'error': f'Multiple faces detected in image {idx+1}. Keep only one person in frame.'}), 400
 
@@ -145,9 +161,13 @@ def get_single_embedding():
         embedding, err = get_embedding_from_bgr(img, padding=pad_amount)
 
         if err == 'no_face':
-            return jsonify({'success': False, 'ok': False, 'error': 'No face detected'}), 400
+            return jsonify({'success': False, 'ok': False, 'error': 'No face detected.'}), 400
+        if err == 'too_dark':
+            return jsonify({'success': False, 'ok': False, 'error': 'Too dark. Move to a well-lit area.'}), 400
+        if err == 'too_blurry':
+            return jsonify({'success': False, 'ok': False, 'error': 'Image was blurry. Please hold still.'}), 400
         if err == 'multiple':
-            return jsonify({'success': False, 'ok': False, 'error': 'Multiple faces detected'}), 400
+            return jsonify({'success': False, 'ok': False, 'error': 'Multiple faces detected.'}), 400
 
         return jsonify({'success': True, 'ok': True, 'embedding': embedding})
 
