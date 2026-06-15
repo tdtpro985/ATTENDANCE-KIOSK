@@ -171,6 +171,54 @@ class NativeFacePreprocessorModule(reactContext: ReactApplicationContext) : Reac
             resized.getPixels(pixels, 0, size, 0, 0, size, size)
             resized.recycle()
 
+            // 1. Calculate perceived brightness
+            var totalLuminance = 0.0
+            val gray = DoubleArray(pixelCount)
+            for (i in 0 until pixelCount) {
+                val pixel = pixels[i]
+                val r = (pixel shr 16) and 0xff
+                val g = (pixel shr 8) and 0xff
+                val b = pixel and 0xff
+                val lum = 0.299 * r + 0.587 * g + 0.114 * b
+                gray[i] = lum
+                totalLuminance += lum
+            }
+            val avgBrightness = totalLuminance / pixelCount
+            if (avgBrightness < 50.0) {
+                promise.reject("PREPROCESS_TOO_DARK", "Too dark. Move to a well-lit area.")
+                return
+            }
+
+            // 2. Calculate Laplacian variance for motion blur detection
+            val laplacian = DoubleArray(pixelCount)
+            var mean = 0.0
+            var count = 0
+            for (y in 1 until size - 1) {
+                for (x in 1 until size - 1) {
+                    val idx = y * size + x
+                    val valLap = gray[idx + 1] + gray[idx - 1] + gray[idx + size] + gray[idx - size] - 4.0 * gray[idx]
+                    laplacian[idx] = valLap
+                    mean += valLap
+                    count++
+                }
+            }
+            mean /= count
+
+            var variance = 0.0
+            for (y in 1 until size - 1) {
+                for (x in 1 until size - 1) {
+                    val idx = y * size + x
+                    val diff = laplacian[idx] - mean
+                    variance += diff * diff
+                }
+            }
+            variance /= count
+
+            if (variance < 50.0) {
+                promise.reject("PREPROCESS_TOO_BLURRY", "Image was blurry. Please hold still.")
+                return
+            }
+
             val tensor = FloatArray(3 * pixelCount)
             for (i in 0 until pixelCount) {
                 val pixel = pixels[i]

@@ -86,7 +86,7 @@ export default function FaceScanView({
   selectedUser,
   accentColor,
   livenessMessage,
-  showTelemetry = true,
+  showTelemetry = false,
   showResultModal = false,
   onBack,
   onOpenOffline,

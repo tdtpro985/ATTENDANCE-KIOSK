@@ -60,16 +60,19 @@ if ($liveImageB64) {
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($httpCode === 200 && $response) {
+    $errorMsg = 'Server-side face extraction failed.';
+    if ($response) {
         $resData = json_decode($response, true);
-        if (isset($resData['ok']) && $resData['ok'] && isset($resData['embedding'])) {
+        if ($httpCode === 200 && isset($resData['ok']) && $resData['ok'] && isset($resData['embedding'])) {
             $liveEmbedding = $resData['embedding'];
+        } else if (isset($resData['error'])) {
+            $errorMsg = $resData['error'];
         }
     }
     
     if (!$liveEmbedding) {
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'message' => 'Server-side face extraction failed.']);
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'message' => $errorMsg]);
         exit;
     }
 } else if ($liveEmbeddingRaw) {
