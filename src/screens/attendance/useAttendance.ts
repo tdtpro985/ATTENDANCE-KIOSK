@@ -324,6 +324,9 @@ export function useAttendance() {
   const lastTrackedFaceW = useSharedValue(0);
   const lastTrackedFaceH = useSharedValue(0);
   const hasTrackedFace = useSharedValue(false);
+  const lastTrackedFaceYaw = useSharedValue(0);
+  const lastTrackedFacePitch = useSharedValue(0);
+  const lastTrackedFaceRoll = useSharedValue(0);
 
   // PASSIVE LIVENESS HISTORY
   const leftEyeHistory = useSharedValue<number[]>([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]);
@@ -746,19 +749,30 @@ export function useAttendance() {
         embedding_val: user.face_embedding ? (typeof user.face_embedding === 'string' ? user.face_embedding.substring(0, 50) + '...' : 'object/array') : 'NULL'
       });
 
-      // FORCE SYNC LOCAL CACHE: If server says user is clocked out, we MUST clear local session
-      if (!user.open_session) {
-        console.log(`[QR] Server says NO open session for ${user.username}. Clearing local cache.`);
-        await clearStoredSession(user.userId);
+      // FORCE SYNC LOCAL CACHE: If server says user is clocked out, we MUST clear local session,
+      // but ONLY if there are no pending offline attendance records for this user (which haven't synced yet).
+      const queue = await getOfflineAttendanceQueue().catch(() => []);
+      const hasPendingOffline = queue.some(item => 
+        item.userId === user.userId && 
+        (item.status === 'pending' || item.status === 'failed')
+      );
+
+      if (hasPendingOffline) {
+        console.log(`[QR] Unsynced offline queue items exist for ${user.username}. Preserving local session state.`);
       } else {
-        console.log(`[QR] Server says OPEN session found for ${user.username}. Saving to local cache.`);
-        await saveStoredSession({
-          userId: user.userId,
-          username: user.username,
-          name: user.name ?? null,
-          clockInTime: user.open_session.timein,
-          clockInDate: user.open_session.date
-        });
+        if (!user.open_session) {
+          console.log(`[QR] Server says NO open session for ${user.username}. Clearing local cache.`);
+          await clearStoredSession(user.userId);
+        } else {
+          console.log(`[QR] Server says OPEN session found for ${user.username}. Saving to local cache.`);
+          await saveStoredSession({
+            userId: user.userId,
+            username: user.username,
+            name: user.name ?? null,
+            clockInTime: user.open_session.timein,
+            clockInDate: user.open_session.date
+          });
+        }
       }
 
       setOfflineModeEnabled(false);
@@ -1107,6 +1121,7 @@ export function useAttendance() {
     best_angle_index?: number; 
     agreeing_angles?: number;
     username?: string;
+    model_used?: string;
   } | null> => {
     try {
       const userId = selectedUserRef.current?.userId;
@@ -1132,7 +1147,6 @@ export function useAttendance() {
 
       const json = await response.json();
       const isVerified = json.verified === true || json.is_match === true || json.ok === true;
-      console.log(`[Face Verification API] Response:`, { verified: isVerified, similarity: json.similarity, threshold: json.threshold, angle_count: json.angle_count, best_angle: json.best_angle_index });
 
       if (json.ok === false && json.message) {
         return { 
@@ -1143,7 +1157,8 @@ export function useAttendance() {
           similarity: json.similarity, 
           angle_count: json.angle_count, 
           best_angle_index: json.best_angle_index ?? json.best_angle, 
-          agreeing_angles: json.agreeing_angles 
+          agreeing_angles: json.agreeing_angles,
+          model_used: json.model_used
         };
       }
 
@@ -1156,6 +1171,7 @@ export function useAttendance() {
         angle_count: json.angle_count,
         best_angle_index: json.best_angle_index ?? json.best_angle,
         agreeing_angles: json.agreeing_angles,
+        model_used: json.model_used
       };
     } catch (err: any) {
       console.log('[Face Verification API] Unavailable, falling back to local:', err?.message);
@@ -1163,7 +1179,7 @@ export function useAttendance() {
     }
   }, []);
 
-  const verifyFaceLocal = useCallback((liveEmbedding: number[]): { ok: boolean; verified: boolean; message?: string; hint?: string; similarity?: number; angle_count?: number; best_angle_index?: number; agreeing_angles?: number } => {
+  const verifyFaceLocal = useCallback((liveEmbedding: number[]): { ok: boolean; verified: boolean; message?: string; hint?: string; similarity?: number; angle_count?: number; best_angle_index?: number; agreeing_angles?: number; model_used?: string } => {
     console.log('[Face Verification] === LOCAL VERIFICATION START ===');
     console.log(`[Face Verification] Target Employee: ${selectedUserRef.current?.name || 'Unknown'} (Username: ${selectedUserRef.current?.username || 'N/A'}, ID: ${selectedUserRef.current?.userId || 'N/A'})`);
     if (!isValidEmbeddingVector(liveEmbedding)) {
@@ -1208,16 +1224,16 @@ export function useAttendance() {
     const threshold = MODEL_CONFIG.matchThreshold;
     const subThreshold = MODEL_CONFIG.subThreshold;
 
-    // Require at least 2 angles above sub-threshold for multi-angle registrations
+    // Require at least 3 matching angles for 5 profiles, 2 for 3-4 profiles, and 1 for <3 profiles
     const agreeingAngles = result.perAngleScores.filter(s => s >= subThreshold).length;
-    const top2Required = result.angleCount >= 3;
-    const top2Agrees = !top2Required || agreeingAngles >= 2;
+    const minAgrees = result.angleCount >= 5 ? 3 : (result.angleCount >= 3 ? 2 : 1);
+    const agreementOk = agreeingAngles >= minAgrees;
 
-    const isMatched = isMatch(result.maxSimilarity, threshold) && top2Agrees;
+    const isMatched = isMatch(result.maxSimilarity, threshold) && agreementOk;
     
     console.log(`[Face Verification] Angles: ${result.angleCount}, Per-angle scores: [${result.perAngleScores.map(s => s.toFixed(4)).join(', ')}]`);
     console.log(`[Face Verification] Best Cosine Similarity: ${result.maxSimilarity.toFixed(4)} (${(result.maxSimilarity * 100).toFixed(2)}%) from angle ${result.bestAngleIndex}`);
-    console.log(`[Face Verification] Agreeing angles (≥${subThreshold}): ${agreeingAngles} / ${result.angleCount}${top2Required ? ' (top2 required)' : ''}`);
+    console.log(`[Face Verification] Agreeing angles (≥${subThreshold}): ${agreeingAngles} / ${result.angleCount} (Required: ${minAgrees})`);
     console.log(`[Face Verification] Match Threshold Required: ${threshold.toFixed(2)} (${(threshold * 100).toFixed(0)}%)`);
     console.log(`[Face Verification] Match Verdict: ${isMatched ? '✅ [PASS]' : '❌ [FAIL]'}`);
     console.log('[Face Verification] === LOCAL VERIFICATION END ===');
@@ -1229,6 +1245,7 @@ export function useAttendance() {
       angle_count: result.angleCount,
       best_angle_index: result.bestAngleIndex,
       agreeing_angles: agreeingAngles,
+      model_used: 'buffalo_sc (Local)'
     };
     if (isMatched) return ret;
     return {
@@ -1504,9 +1521,8 @@ export function useAttendance() {
               const threshold = MODEL_CONFIG.matchThreshold;
               const subThreshold = MODEL_CONFIG.subThreshold;
               const agreeingAngles = r.perAngleScores.filter((s: number) => s >= subThreshold).length;
-              const top2Required = r.angleCount >= 3;
-              const top2Agrees = !top2Required || agreeingAngles >= 2;
-              const isMatched = r.maxSimilarity >= threshold && top2Agrees;
+              const minAgrees = r.angleCount >= 5 ? 3 : (r.angleCount >= 3 ? 2 : 1);
+              const isMatched = r.maxSimilarity >= threshold && agreeingAngles >= minAgrees;
 
               if (isMatched && attempt === 1) {
                 console.log(`[CameraVision] Shot 1 is a clear pass (${(r.maxSimilarity * 100).toFixed(1)}% >= ${(threshold * 100).toFixed(0)}%), skipping shot 2.`);
@@ -1559,28 +1575,32 @@ export function useAttendance() {
       const isSuccess = result?.ok === true || result?.verified === true;
 
       console.log('\n==================================================');
-      console.log('       [Face Verification TEST METRICS]           ');
+      console.log('        [Face Verification TEST METRICS]          ');
       console.log('==================================================');
-      console.log(`👤 Employee:    ${userName} (ID: ${userId})`);
-      console.log(`⚡ Method:      ${methodUsed}`);
-      console.log(`🏆 Result:      ${isSuccess ? '✅ [PASSED]' : '❌ [FAILED]'}`);
+      console.log(` Employee:      ${userName} (ID: ${userId})`);
+      console.log(` Method:        ${methodUsed}`);
+      if (result?.model_used) {
+        console.log(` Model:         ${result.model_used}`);
+      }
+      console.log(` Result:        ${isSuccess ? '[PASSED]' : '[FAILED]'}`);
       if (scoreVal !== null) {
-        console.log(`📈 Score:       ${(scoreVal * 100).toFixed(2)}% (Threshold: ${(MODEL_CONFIG.matchThreshold * 100).toFixed(0)}%)`);
+        console.log(` Score:         ${(scoreVal * 100).toFixed(2)}% (Threshold: ${(MODEL_CONFIG.matchThreshold * 100).toFixed(0)}%)`);
       } else {
-        console.log(`📈 Score:       N/A`);
+        console.log(` Score:         N/A`);
       }
       if (result?.angle_count != null) {
-        console.log(`📐 Angles:      ${result.angle_count} profiles (Best angle: #${result.best_angle_index})`);
-        console.log(`🤝 Agreement:   ${result.agreeing_angles ?? 0} matching angles (At least 2 required)`);
+        const minAgrees = result.angle_count >= 5 ? 3 : (result.angle_count >= 3 ? 2 : 1);
+        console.log(` Angles:        ${result.angle_count} profiles (Best angle: #${result.best_angle_index})`);
+        console.log(` Agreement:     ${result.agreeing_angles ?? 0} matching angles (At least ${minAgrees} required)`);
         if (!isSuccess && scoreVal >= MODEL_CONFIG.matchThreshold) {
-          console.log(`⚠️ Reason:      Failed multi-angle alignment check (less than 2 angles matched above sub-threshold)`);
+          console.log(` Reason:        Failed multi-angle alignment check (less than ${minAgrees} angles matched)`);
         }
       }
       console.log('--------------------------------------------------');
-      console.log('Performance Details:');
-      console.log(`📸 Image Capture/ONNX:  ${captureDuration} ms`);
-      console.log(`⚖️ Comparison Math:     ${compareDuration} ms`);
-      console.log(`⏱️ Total Cycle Time:    ${totalTime} ms`);
+      console.log(' Performance Details:');
+      console.log(` Image Capture/ONNX: ${captureDuration} ms`);
+      console.log(` Comparison Math:    ${compareDuration} ms`);
+      console.log(` Total Cycle Time:   ${totalTime} ms`);
       console.log('==================================================\n');
 
       if (result?.ok === true || result?.verified === true) {
@@ -1828,23 +1848,51 @@ export function useAttendance() {
       const recognitionFace = selectBestRecognitionFace(faces, frame.width, frame.height);
       const trackedFace = detectedFace ?? recognitionFace;
 
-      // Store the best face box in shared values for the capture block to reuse
+      let isMoving = false;
       if (trackedFace) {
+        const yaw = trackedFace.sourceFace?.yawAngle ?? trackedFace.sourceFace?.eulerY ?? trackedFace.sourceFace?.headEulerAngleY ?? 0;
+        const pitch = trackedFace.sourceFace?.pitchAngle ?? trackedFace.sourceFace?.eulerX ?? trackedFace.sourceFace?.headEulerAngleX ?? 0;
+        const roll = trackedFace.sourceFace?.rollAngle ?? trackedFace.sourceFace?.eulerZ ?? trackedFace.sourceFace?.headEulerAngleZ ?? 0;
+
+        if (hasTrackedFace.value) {
+          const currentCenterX = trackedFace.box.x + trackedFace.box.width / 2;
+          const currentCenterY = trackedFace.box.y + trackedFace.box.height / 2;
+          const prevCenterX = lastTrackedFaceX.value + lastTrackedFaceW.value / 2;
+          const prevCenterY = lastTrackedFaceY.value + lastTrackedFaceH.value / 2;
+
+          const dx = currentCenterX - prevCenterX;
+          const dy = currentCenterY - prevCenterY;
+          const dw = trackedFace.box.width - lastTrackedFaceW.value;
+          const dh = trackedFace.box.height - lastTrackedFaceH.value;
+
+          const movementDistance = Math.sqrt(dx * dx + dy * dy);
+          const sizeChange = Math.sqrt(dw * dw + dh * dh);
+          
+          const dYaw = Math.abs(yaw - lastTrackedFaceYaw.value);
+          const dPitch = Math.abs(pitch - lastTrackedFacePitch.value);
+          const dRoll = Math.abs(roll - lastTrackedFaceRoll.value);
+
+          if (movementDistance > 0.015 || sizeChange > 0.015 || dYaw > 2.5 || dPitch > 2.5 || dRoll > 2.5) {
+            isMoving = true;
+          }
+        }
+
         lastTrackedFaceX.value = trackedFace.box.x;
         lastTrackedFaceY.value = trackedFace.box.y;
         lastTrackedFaceW.value = trackedFace.box.width;
         lastTrackedFaceH.value = trackedFace.box.height;
+        lastTrackedFaceYaw.value = yaw;
+        lastTrackedFacePitch.value = pitch;
+        lastTrackedFaceRoll.value = roll;
         hasTrackedFace.value = true;
       }
 
       if (workletPhase.value === 0) {
-        const isUsable = detectedFace && isFaceBoxUsableForRecognition(detectedFace.box, detectedFace.sourceFace);
+        const isUsable = detectedFace && isFaceBoxUsableForRecognition(detectedFace.box, detectedFace.sourceFace) && !isMoving;
         if (isUsable) {
           stableFaceFrames.value = Math.min(stableFaceFrames.value + 1, CAMERA_VISION_STABLE_FACE_FRAMES);
         } else {
-          if (stableFaceFrames.value !== 0) {
-            stableFaceFrames.value = Math.max(0, stableFaceFrames.value - 1);
-          }
+          stableFaceFrames.value = 0; // Instant reset on motion or tracking loss
         }
 
           if (detectedFace) {
@@ -1978,7 +2026,7 @@ export function useAttendance() {
       } finally {
         isProcessingFace.value = false;
       }
-  }, [detectFaces, sharedTouchlessEnabled, sharedFaceEngineIsCameraVision, onFaceDetectedForIdentity, onTouchlessFaceLost, onCameraVisionDetectionProgress, onBackgroundLivenessChange, updateLivenessMessage, isCapturingHardwareRef, workletPhase, blinkState, isProcessingFace, stableFaceFrames, lastCameraVisionReadinessSent, lastCameraVisionDetectedSent, frameCounter, lastFaceProcessedFrame, lastTrackedFaceX, lastTrackedFaceY, lastTrackedFaceW, lastTrackedFaceH, hasTrackedFace, consecutiveNoFaceFrames, hasPassedPassiveLiveness, sharedLivenessEnabled]);
+  }, [detectFaces, sharedTouchlessEnabled, sharedFaceEngineIsCameraVision, onFaceDetectedForIdentity, onTouchlessFaceLost, onCameraVisionDetectionProgress, onBackgroundLivenessChange, updateLivenessMessage, isCapturingHardwareRef, workletPhase, blinkState, isProcessingFace, stableFaceFrames, lastCameraVisionReadinessSent, lastCameraVisionDetectedSent, frameCounter, lastFaceProcessedFrame, lastTrackedFaceX, lastTrackedFaceY, lastTrackedFaceW, lastTrackedFaceH, hasTrackedFace, lastTrackedFaceYaw, lastTrackedFacePitch, lastTrackedFaceRoll, consecutiveNoFaceFrames, hasPassedPassiveLiveness, sharedLivenessEnabled]);
 
   // QR scanner
   const handleBarcodeScanned = async (event: any) => {
@@ -2016,7 +2064,30 @@ export function useAttendance() {
 
       if (cachedUser) {
         console.log('[QR] Loaded from local cache -> Instant UI transition for:', cachedUser.username);
-        const localSession = await getStoredSession(cachedUser.userId);
+        
+        // If there are pending offline records for this user, the latest offline record determines the active state.
+        const queue = await getOfflineAttendanceQueue().catch(() => []);
+        const userPendingItems = queue.filter(item => 
+          item.userId === cachedUser.userId && 
+          (item.status === 'pending' || item.status === 'failed')
+        );
+
+        let localSession = null;
+        if (userPendingItems.length > 0) {
+          userPendingItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          const latestAction = userPendingItems[0].action;
+          if (latestAction === 'clock_in') {
+            localSession = {
+              userId: cachedUser.userId,
+              username: cachedUser.username,
+              name: cachedUser.name ?? null,
+              clockInTime: userPendingItems[0].time,
+              clockInDate: userPendingItems[0].date
+            };
+          }
+        } else {
+          localSession = await getStoredSession(cachedUser.userId);
+        }
         
         await AsyncStorage.setItem('userId', cachedUser.userId);
         await AsyncStorage.setItem('username', cachedUser.username);
@@ -2071,14 +2142,31 @@ export function useAttendance() {
 
         // Background server sync to correct session state and fetch face data
         resolveUserFromQr(data).then(async (resolved) => {
+           const queue = await getOfflineAttendanceQueue().catch(() => []);
+           const userPendingItems = queue.filter(item => 
+             item.userId === resolved.userId && 
+             (item.status === 'pending' || item.status === 'failed')
+           );
+
            let existingSession = null;
-           if (!offlineModeEnabled && resolved.open_session) {
-             existingSession = {
-               clockInTime: resolved.open_session.timein,
-               clockInDate: resolved.open_session.date,
-             };
+           if (userPendingItems.length > 0) {
+             userPendingItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+             const latestAction = userPendingItems[0].action;
+             if (latestAction === 'clock_in') {
+               existingSession = {
+                 clockInTime: userPendingItems[0].time,
+                 clockInDate: userPendingItems[0].date
+               };
+             }
            } else {
-             existingSession = await getStoredSession(resolved.userId);
+             if (!offlineModeEnabled && resolved.open_session) {
+               existingSession = {
+                 clockInTime: resolved.open_session.timein,
+                 clockInDate: resolved.open_session.date,
+               };
+             } else {
+               existingSession = await getStoredSession(resolved.userId);
+             }
            }
            console.log('[QR] Background sync complete. Updated user data for:', resolved.username);
            
@@ -2127,14 +2215,31 @@ export function useAttendance() {
       const resolved = await resolveUserFromQr(data);
       
       // Determine session state: Server-first (if online), Local fallback (if offline)
+      const queue = await getOfflineAttendanceQueue().catch(() => []);
+      const userPendingItems = queue.filter(item => 
+        item.userId === resolved.userId && 
+        (item.status === 'pending' || item.status === 'failed')
+      );
+
       let existingSession = null;
-      if (!offlineModeEnabled && resolved.open_session) {
-        existingSession = {
-          clockInTime: resolved.open_session.timein,
-          clockInDate: resolved.open_session.date,
-        };
+      if (userPendingItems.length > 0) {
+        userPendingItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const latestAction = userPendingItems[0].action;
+        if (latestAction === 'clock_in') {
+          existingSession = {
+            clockInTime: userPendingItems[0].time,
+            clockInDate: userPendingItems[0].date
+          };
+        }
       } else {
-        existingSession = await getStoredSession(resolved.userId);
+        if (!offlineModeEnabled && resolved.open_session) {
+          existingSession = {
+            clockInTime: resolved.open_session.timein,
+            clockInDate: resolved.open_session.date,
+          };
+        } else {
+          existingSession = await getStoredSession(resolved.userId);
+        }
       }
 
       console.log('[QR] Resolved user from server', sanitizeForLog(resolved));

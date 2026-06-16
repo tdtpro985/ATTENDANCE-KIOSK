@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import ShowQRScan from './src/screens/ShowQRScan';
-import EmployeeProfileData from './src/screens/EmployeeProfileData';
+// import EmployeeProfileData from './src/screens/EmployeeProfileData'; // DISABLED FOR PERFORMANCE
 import Settings from './src/screens/settings';
 import OfflineSync from './src/screens/OfflineSync';
 import * as Location from 'expo-location';
@@ -117,7 +117,7 @@ export default function App() {
 
   const ScreenComponent = useMemo(() => {
     if (screen === 'qr') return <ShowQRScan onBack={() => setScreen('home')} onOpenOffline={() => setScreen('offline')} />;
-    if (screen === 'profile') return <EmployeeProfileData onBack={() => setScreen('home')} />;
+    // if (screen === 'profile') return <EmployeeProfileData onBack={() => setScreen('home')} />; // DISABLED FOR PERFORMANCE
     if (screen === 'settings') return <Settings onBack={() => setScreen('home')} />;
     if (screen === 'offline') return <OfflineSync onBack={() => setScreen('home')} onOpenScanner={() => setScreen('qr')} />;
     return null;
@@ -200,6 +200,7 @@ export default function App() {
                   <Text style={[styles.largeButtonText, { fontSize: scannerBtnFontSize }]}>ATTENDANCE SCANNER</Text>
                 </Pressable>
 
+                {/* --- DISABLED FOR PERFORMANCE ---
                 <Pressable 
                   style={({ pressed }) => [
                     styles.secondaryButton, 
@@ -216,6 +217,7 @@ export default function App() {
                     {kioskMode === 'intern' ? 'INTERN LIST' : 'EMPLOYEE DIRECTORY'}
                   </Text>
                 </Pressable>
+                -------------------------------- */}
 
                 <Pressable 
                   style={({ pressed }) => [
