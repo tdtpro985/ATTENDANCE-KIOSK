@@ -95,13 +95,9 @@ IMS_DB_NAME=tdt_ims
 # The kiosk backend proxies intern clock-in/out events to this endpoint
 IMS_URL=http://localhost:8001
 
-# Face Recognition Settings
-# Options: 'local' (performs cosine similarity checks on-device and on PHP backend)
-# External API fallback config (if used):
-FACE_VERIFY_MODE=local
-FACEPP_API_KEY=your-faceplusplus-key
-FACEPP_API_SECRET=your-faceplusplus-secret
-LUXAND_API_TOKEN=your-luxand-token
+# Face Recognition AI Server
+# URL to your locally hosted Python AI Server running buffalo_l
+FACE_SERVER_URL=http://localhost:5001
 ```
 
 ---
@@ -172,8 +168,8 @@ To distribute the kiosk application to tablet devices:
 
 ## 6. Troubleshooting
 
-- **Error: "No face recognition provider configured on server"**:
-  This happens when `FACE_VERIFY_MODE` is not configured or fails to default in the backend `.env`. Verify that your environment variables are correctly loaded in Render or Apache.
+- **Error: "Python AI Server unreachable"**:
+  This happens when the Python face recognition server (`app.py`) is not running or `FACE_SERVER_URL` is incorrect. Start it via `python intern_face_reg_server/app.py`.
   
 - **Clock-In Offline Fallback**:
   If the kiosk is online, it will try to record directly to the server. If it fails due to network instability, it falls back to the local device queue. Administrators can visit the **Offline Sync** screen inside settings to view queue status, trigger manual synchronization, or delete stuck/failed items.
