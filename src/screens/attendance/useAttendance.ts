@@ -1290,7 +1290,11 @@ export function useAttendance() {
       let data: any = {};
       try { data = responseText ? JSON.parse(responseText) : {}; }
       catch { throw new Error(`Attendance response invalid. Status: ${res.status}`); }
-      if (!res.ok || !data?.ok) throw new Error(data?.message || `Unable to record attendance (${res.status})`);
+      if (!res.ok || !data?.ok) {
+        const err = new Error(data?.message || `Unable to record attendance (${res.status})`);
+        (err as any).status = res.status;
+        throw err;
+      }
       return data;
     } catch (error) {
       clearTimeout(timeoutId);
@@ -1376,10 +1380,24 @@ export function useAttendance() {
               'Attendance processed.', 2000);
           }, 500);
           return;
-        } catch (onlineError) {
-          console.log('[Attendance] Online record failed, falling back to offline queue:', onlineError);
+        } catch (onlineError: any) {
+          console.log('[Attendance] Online record failed:', onlineError);
+          
+          // If it's a 4xx error (like "No clock in entry found"), it's a business logic rejection, NOT a network issue!
+          if (onlineError.status >= 400 && onlineError.status < 500) {
+            setScanStage('error');
+            playErrorSound();
+            showModal('error', 'Attendance Failed', onlineError.message || 'Rejected by server.', 5000);
+            
+            setTimeout(async () => {
+              await resetAttendanceFlow();
+              workletPhase.value = 0;
+            }, 5000);
+            return;
+          }
+          
+          console.log('[Attendance] Falling back to offline queue...');
         }
-      }
 
       const offlineItem = await enqueueOfflineAttendance({ 
           userId: selectedUserRef.current!.userId, 
