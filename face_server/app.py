@@ -8,8 +8,8 @@ import os
 
 app = Flask(__name__)
 
-home_dir = os.path.expanduser('~')
-insightface_root = os.path.join(home_dir, '.insightface')
+face_server_dir = os.path.dirname(os.path.abspath(__file__))
+insightface_root = os.path.abspath(os.path.join(face_server_dir, '..', 'assets'))
 
 # InsightFace used for face DETECTION only (bounding box)
 face_app = FaceAnalysis(name='buffalo_sc', root=insightface_root)
@@ -17,6 +17,15 @@ face_app.prepare(ctx_id=-1, det_size=(640, 640))
 
 # Ensure buffalo_l is downloaded
 _ = FaceAnalysis(name='buffalo_l', root=insightface_root)
+
+# Auto-delete any downloaded zip files to save disk space
+for dirpath, _, filenames in os.walk(insightface_root):
+    for filename in filenames:
+        if filename.endswith('.zip'):
+            try:
+                os.remove(os.path.join(dirpath, filename))
+            except Exception:
+                pass
 
 # Load recognition model directly so we control preprocessing to match client exactly
 rec_model_path = os.path.join(insightface_root, 'models', 'buffalo_sc', 'w600k_mbf.onnx')
@@ -39,8 +48,10 @@ def get_embedding_from_bgr(img_bgr: np.ndarray, padding=1.5, model='buffalo_sc')
     faces = face_app.get(img_bgr)
     if not faces:
         return None, 'no_face'
+    
+    # Select closest face (largest bounding box area) if multiple faces are detected
     if len(faces) > 1:
-        return None, 'multiple'
+        faces = sorted(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]), reverse=True)
 
     bbox = faces[0].bbox.astype(int)
     face_w = bbox[2] - bbox[0]
