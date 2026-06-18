@@ -436,34 +436,9 @@ export default function FaceScanView({
 
   const renderDetectionOverlay = () => {
     if (!showDetectionOverlay) return null;
-    const bystanderFaces = (cameraVisionAllFaces || []).filter(f => !f.isTarget);
     return (
       <View style={styles.fullScreenDetectionOverlay} pointerEvents="none">
-        {bystanderFaces.map((face) => {
-          const px = mapFaceBoxToPx({
-            left: face.left,
-            top: face.top,
-            width: face.width,
-            height: face.height,
-            frameWidth: face.frameWidth,
-            frameHeight: face.frameHeight,
-          });
-          return (
-            <View
-              key={face.id}
-              style={[
-                styles.detectionFaceBox,
-                styles.bystanderFaceBox,
-                {
-                  left: px.left,
-                  top: px.top,
-                  width: px.width,
-                  height: px.height,
-                },
-              ]}
-            />
-          );
-        })}
+        {/* Bystander faces overlay removed for A7 Lite performance */}
         {(() => {
           const isFaceReady = livenessEnabled ? backgroundLivenessPassed : (detectionPercent === 100);
           return (
