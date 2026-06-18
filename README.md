@@ -10,7 +10,7 @@ Verify that your local machine has the following software installed before proce
 
 - **Node.js**: Version 18.x or newer (recommended LTS).
 - **PHP**: Version 8.0 or newer. Required extensions: `curl`, `gd`, `mysqli`, `openssl`, `json`.
-- **Python**: Version 3.9 or newer (for the Face Recognition Engine).
+- **Python**: Version 3.9 to 3.12 (for the Face Recognition Engine. *Note: Avoid 3.13+ as AI libraries often lack pre-compiled binaries for bleeding-edge Python versions*).
 - **MySQL / MariaDB**: Version 5.7 or newer (stores local intern database `tdt_ims`).
 - **Supabase Account**: A configured cloud Supabase instance for regular employee records.
 
