@@ -50,7 +50,6 @@ storage/*.json
 memory_*.md
 
 #config
-src/config/backend.ts
 ./idea/*
 
 # Face recognition models (large binaries)
