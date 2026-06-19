@@ -10,21 +10,26 @@ if (!fs.existsSync(buildGradlePath)) {
 
 let content = fs.readFileSync(buildGradlePath, 'utf8');
 
-if (!content.includes('VersionNumber')) {
-  console.log('[patch-onnx] Already patched or no VersionNumber found, skipping.');
+// Check if already cleanly patched
+if (!content.includes('VersionNumber') && !content.includes('if (true // patched')) {
+  console.log('[patch-onnx] Already clean, skipping.');
   process.exit(0);
 }
 
-// Remove import line
-content = content.replace(/\s*import org\.gradle\.util\.VersionNumber\n/, '\n');
-
-// Replace the VersionNumber if-block with unconditional extractLibs calls
+// Fix broken patch from before
 content = content.replace(
-  /if\s*\(VersionNumber\.parse\(([^)]+)\)[^)]*\)\s*>=\s*VersionNumber\.parse\([^)]+\)\s*\)\s*\{([\s\S]*?)\}/,
-  (match, p1, inner) => {
-    return inner.trim();
-  }
+  /  if \(true \/\/ patched for Gradle 9\n    extractLibs "com\.facebook\.fbjni:fbjni:\+:headers"\n    extractLibs "com\.facebook\.fbjni:fbjni:\+"\n  \}/,
+  '  extractLibs "com.facebook.fbjni:fbjni:+:headers"\n  extractLibs "com.facebook.fbjni:fbjni:+"'
+);
+
+// Remove VersionNumber import
+content = content.replace(/^import org\.gradle\.util\.VersionNumber\r?\n/m, '');
+
+// Replace VersionNumber if-block with unconditional lines
+content = content.replace(
+  /if\s*\(\s*VersionNumber\.parse[\s\S]*?\)\s*\{([\s\S]*?)\n\s*\}/m,
+  (match, inner) => inner.trim()
 );
 
 fs.writeFileSync(buildGradlePath, content, 'utf8');
-console.log('[patch-onnx] Successfully patched onnxruntime build.gradle for Gradle 9.');
+console.log('[patch-onnx] Successfully patched onnxruntime build.gradle.');
