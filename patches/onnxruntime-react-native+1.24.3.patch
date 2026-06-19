@@ -33,7 +33,7 @@ index 0000000..27ec91d
 +	</filteredResources>
 +</projectDescription>
 diff --git a/node_modules/onnxruntime-react-native/android/build.gradle b/node_modules/onnxruntime-react-native/android/build.gradle
-index 41b4359..a9502de 100644
+index 41b4359..d051b90 100644
 --- a/node_modules/onnxruntime-react-native/android/build.gradle
 +++ b/node_modules/onnxruntime-react-native/android/build.gradle
 @@ -24,7 +24,8 @@ def getExtOrIntegerDefault(name) {
@@ -46,6 +46,38 @@ index 41b4359..a9502de 100644
  }
  
  def resolveBuildType() {
+@@ -192,8 +193,7 @@ repositories {
+   } else {
+     def parentDir = rootProject.projectDir
+ 
+-    1.upto(5, {
+-      if (found) return true
++    for (int i = 1; i <= 5 && !found; i++) {
+       parentDir = parentDir.parentFile
+ 
+       def androidSourcesDir = new File(
+@@ -223,7 +223,7 @@ repositories {
+         logger.info(":${project.name}:reactNativeAndroidRoot ${androidSourcesDir.canonicalPath}")
+         found = true
+       }
+-    })
++    }
+   }
+ 
+   if (!found) {
+@@ -247,10 +247,8 @@ dependencies {
+     extractLibs "com.microsoft.onnxruntime:onnxruntime-android:latest.integration@aar"
+   }
+ 
+-  if (VersionNumber.parse(REACT_NATIVE_VERSION) < VersionNumber.parse("0.71")) {
+-    extractLibs "com.facebook.fbjni:fbjni:+:headers"
+-    extractLibs "com.facebook.fbjni:fbjni:+"
+-  }
++  extractLibs "com.facebook.fbjni:fbjni:+:headers"
++  extractLibs "com.facebook.fbjni:fbjni:+"
+ 
+   // By default it will just include onnxruntime full aar package
+   if (ortExtensionsEnabled) {
 diff --git a/node_modules/onnxruntime-react-native/android/src/main/java/ai/onnxruntime/reactnative/OnnxruntimeModule.java b/node_modules/onnxruntime-react-native/android/src/main/java/ai/onnxruntime/reactnative/OnnxruntimeModule.java
 index c362e6a..f03e2e5 100644
 --- a/node_modules/onnxruntime-react-native/android/src/main/java/ai/onnxruntime/reactnative/OnnxruntimeModule.java
