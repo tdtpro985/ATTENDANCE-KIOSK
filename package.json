@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "build:android": "eas build --platform android --profile preview",
     "test": "jest",
-    "postinstall": "node ./scripts/patch-onnx.js"
+    "postinstall": "patch-package && node ./scripts/patch-onnx.js"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -52,7 +52,7 @@
     "babel-preset-expo": "~56.0.0",
     "jest": "^29.7.0",
     "jest-expo": "~56.0.5",
-    "patch-package": "^8.0.0",
+    "patch-package": "^8.0.1",
     "react-test-renderer": "^19.2.3",
     "typescript": "~6.0.3"
   },
