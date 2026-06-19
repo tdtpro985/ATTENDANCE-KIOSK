@@ -50,7 +50,9 @@
       "./plugins/withOnnxManualLink.js",
       "expo-sharing",
       "expo-status-bar",
-      "expo-splash-screen"
+      "expo-splash-screen",
+      "expo-font",
+      "./plugins/withGradleWrapperVersion.js"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
