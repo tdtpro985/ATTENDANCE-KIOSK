@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "build:android": "eas build --platform android --profile preview",
     "test": "jest",
-    "postinstall": "patch-package && node ./scripts/patch-onnx.js"
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
