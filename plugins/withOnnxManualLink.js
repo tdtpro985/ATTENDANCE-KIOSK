@@ -15,7 +15,7 @@ module.exports = function withManualOnnxLinking(config) {
   // Add to MainApplication.kt
   config = withMainApplication(config, (config) => {
     let contents = config.modResults.contents;
-    
+
     if (!contents.includes('import ai.onnxruntime.reactnative.OnnxruntimePackage')) {
       contents = contents.replace(
         'import com.facebook.react.PackageList',
@@ -29,8 +29,7 @@ module.exports = function withManualOnnxLinking(config) {
         'PackageList(this).packages.apply {\n              add(OnnxruntimePackage())'
       );
     }
-    
-    // Register custom NativeFacePreprocessorPackage
+
     if (!contents.includes('add(NativeFacePreprocessorPackage())')) {
       if (contents.includes('add(OnnxruntimePackage())')) {
         contents = contents.replace(
@@ -38,25 +37,44 @@ module.exports = function withManualOnnxLinking(config) {
           'add(OnnxruntimePackage())\n              add(NativeFacePreprocessorPackage())'
         );
       } else {
-        // Fallback package injection
         contents = contents.replace(
           /PackageList\(this\)\.packages\.apply\s*\{/,
           'PackageList(this).packages.apply {\n              add(NativeFacePreprocessorPackage())'
         );
       }
     }
-    
+
     config.modResults.contents = contents;
     return config;
   });
 
-  // Automatically copy files (ONNX model + Custom Kotlin Modules)
+  // Patch onnxruntime build.gradle for Gradle 9 compatibility
   config = withDangerousMod(config, [
     'android',
     (config) => {
       const projectRoot = config.modRequest.projectRoot;
-      
-      // 1. Copy ONNX Model
+
+      // Patch onnxruntime-react-native build.gradle
+      const onnxBuildGradle = path.join(projectRoot, 'node_modules', 'onnxruntime-react-native', 'android', 'build.gradle');
+      if (fs.existsSync(onnxBuildGradle)) {
+        let gradle = fs.readFileSync(onnxBuildGradle, 'utf8');
+
+        // Replace VersionNumber usage with simple string comparison
+        if (gradle.includes('VersionNumber')) {
+          gradle = gradle.replace(
+            /import org\.gradle\.util\.VersionNumber[\s\S]*?VersionNumber\.parse[^\n]*/g,
+            '// VersionNumber removed for Gradle 9 compatibility'
+          );
+          // Fallback: replace any remaining VersionNumber references
+          gradle = gradle.replace(/VersionNumber\.[^\n]*/g, 'true // patched for Gradle 9');
+          fs.writeFileSync(onnxBuildGradle, gradle, 'utf8');
+          console.log('[withManualOnnxLinking] Patched onnxruntime build.gradle for Gradle 9.');
+        }
+      } else {
+        console.warn('WARNING: onnxruntime build.gradle not found at ' + onnxBuildGradle);
+      }
+
+      // Copy ONNX Model
       const androidAssetsDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'assets');
       const sourceModelPath = path.join(projectRoot, 'assets', 'models', 'w600k_mbf.onnx');
       const destModelPath = path.join(androidAssetsDir, 'w600k_mbf.onnx');
@@ -72,7 +90,7 @@ module.exports = function withManualOnnxLinking(config) {
         console.warn('WARNING: ONNX model not found at ' + sourceModelPath);
       }
 
-      // 2. Copy Custom Native Kotlin Modules
+      // Copy Custom Native Kotlin Modules
       const srcNativeAndroidDir = path.join(projectRoot, 'src', 'native', 'android');
       const destNativeAndroidDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'java', 'com', 'ams', 'attendanceapp');
 
@@ -80,25 +98,19 @@ module.exports = function withManualOnnxLinking(config) {
         if (!fs.existsSync(destNativeAndroidDir)) {
           fs.mkdirSync(destNativeAndroidDir, { recursive: true });
         }
-        
-        const filesToCopy = [
-          'NativeFacePreprocessorModule.kt',
-          'NativeFacePreprocessorPackage.kt'
-        ];
 
-        filesToCopy.forEach((filename) => {
+        ['NativeFacePreprocessorModule.kt', 'NativeFacePreprocessorPackage.kt'].forEach((filename) => {
           const srcFilePath = path.join(srcNativeAndroidDir, filename);
           const destFilePath = path.join(destNativeAndroidDir, filename);
-          
           if (fs.existsSync(srcFilePath)) {
             fs.copyFileSync(srcFilePath, destFilePath);
-            console.log(`[withManualOnnxLinking] Successfully copied ${filename} to native android project.`);
+            console.log(`[withManualOnnxLinking] Successfully copied ${filename}.`);
           } else {
             console.warn(`WARNING: Custom native file not found at ${srcFilePath}`);
           }
         });
       }
-      
+
       return config;
     },
   ]);
