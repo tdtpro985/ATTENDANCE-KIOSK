@@ -4,26 +4,38 @@
     "slug": "TDT-KIOSK",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/tdt-logo-new.jpg",
+    "icon": "./assets/tdt-logo-new.png",
     "userInterfaceStyle": "light",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app needs access to your camera for face recognition."
+      },
+      "bundleIdentifier": "com.ams.attendanceapp"
     },
     "android": {
       "package": "com.ams.attendanceapp",
       "versionCode": 1,
       "predictiveBackGestureEnabled": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/tdt-logo-new.png",
+        "backgroundColor": "#ffffff"
+      },
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
+      "expo-dev-client",
       [
         "expo-build-properties",
         {
@@ -45,11 +57,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "owner": "tdtqrscanner",
     "extra": {
       "eas": {
-        "projectId": "6e6c30c9-45a5-4dfb-8f0d-f7d4c34dc999"
+        "projectId": "3431bf76-27da-49aa-8940-e0e6952af2a3"
       }
-    },
-    "owner": "dimafelixdj"
+    }
   }
 }

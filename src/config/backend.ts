@@ -1,2 +1,3 @@
-const IP_ADDRESS = process.env.EXPO_PUBLIC_BACKEND_IP || 'localhost';
-export const BACKEND_URL = `http://${IP_ADDRESS}:8000`;
+const IP_ADDRESS = process.env.EXPO_PUBLIC_BACKEND_IP || '192.168.10.221';
+
+export const BACKEND_URL = `http://${IP_ADDRESS}:8080`;
