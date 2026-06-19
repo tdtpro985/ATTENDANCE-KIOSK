@@ -4,15 +4,10 @@
     "slug": "TDT-KIOSK",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/tdt-logo-new.jpg",
+    "icon": "./assets/tdt-logo-new.png",
     "userInterfaceStyle": "light",
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": true,
@@ -26,7 +21,7 @@
       "versionCode": 1,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/tdt-logo-new.jpg",
+        "foregroundImage": "./assets/tdt-logo-new.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
@@ -52,7 +47,10 @@
         }
       ],
       "expo-asset",
-      "./plugins/withOnnxManualLink.js"
+      "./plugins/withOnnxManualLink.js",
+      "expo-sharing",
+      "expo-status-bar",
+      "expo-splash-screen"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
