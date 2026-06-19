@@ -13,6 +13,7 @@
     "postinstall": "patch-package && node ./scripts/patch-onnx.js"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/cli": "latest",
     "@react-native-community/netinfo": "12.0.1",
