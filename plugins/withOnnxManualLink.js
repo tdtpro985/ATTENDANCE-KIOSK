@@ -61,12 +61,20 @@ module.exports = function withManualOnnxLinking(config) {
 
         // Replace VersionNumber usage with simple string comparison
         if (gradle.includes('VersionNumber')) {
+          // Remove the import + any multi-line VersionNumber.parse(...) >= ... comparison,
+          // keeping the trailing ' {' so the if-block stays syntactically valid.
           gradle = gradle.replace(
-            /import org\.gradle\.util\.VersionNumber[\s\S]*?VersionNumber\.parse[^\n]*/g,
-            '// VersionNumber removed for Gradle 9 compatibility'
+            /import org\.gradle\.util\.VersionNumber\n?/g,
+            ''
           );
-          // Fallback: replace any remaining VersionNumber references
-          gradle = gradle.replace(/VersionNumber\.[^\n]*/g, 'true // patched for Gradle 9');
+          // Replace  "VersionNumber.parse(...) >= VersionNumber.parse(...)"  → "true"
+          // The pattern may span whitespace; keep the trailing " {" character.
+          gradle = gradle.replace(
+            /VersionNumber\.parse\([^)]*\)\s*>=\s*VersionNumber\.parse\([^)]*\)/g,
+            'true /* patched for Gradle 9 */'
+          );
+          // Safety fallback for any remaining bare VersionNumber.XXX references
+          gradle = gradle.replace(/VersionNumber\.[^\n{]*/g, 'true /* patched */');
           fs.writeFileSync(onnxBuildGradle, gradle, 'utf8');
           console.log('[withManualOnnxLinking] Patched onnxruntime build.gradle for Gradle 9.');
         }

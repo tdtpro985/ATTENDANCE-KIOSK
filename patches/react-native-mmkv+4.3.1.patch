@@ -1,0 +1,54 @@
+diff --git a/node_modules/react-native-mmkv/android/build.gradle b/node_modules/react-native-mmkv/android/build.gradle
+index c7d64d5..a2aa040 100644
+--- a/node_modules/react-native-mmkv/android/build.gradle
++++ b/node_modules/react-native-mmkv/android/build.gradle
+@@ -1,14 +1,3 @@
+-buildscript {
+-  repositories {
+-    google()
+-    mavenCentral()
+-  }
+-
+-  dependencies {
+-    classpath "com.android.tools.build:gradle:9.1.0"
+-  }
+-}
+-
+ def reactNativeArchitectures() {
+   def value = rootProject.getProperties().get("reactNativeArchitectures")
+   return value ? value.split(",") : ["x86", "x86_64", "armeabi-v7a", "arm64-v8a"]
+@@ -121,7 +110,6 @@ android {
+     main {
+       if (isNewArchitectureEnabled()) {
+         java.srcDirs += [
+-          // React Codegen files
+           "${project.buildDir}/generated/source/codegen/java"
+         ]
+       }
+@@ -134,17 +122,11 @@ repositories {
+   google()
+ }
+ 
+-
+ dependencies {
+-  // For < 0.71, this will be from the local maven repo
+-  // For > 0.71, this will be replaced by `com.facebook.react:react-android:$version` by react gradle plugin
+   //noinspection GradleDynamicVersion
+   implementation "com.facebook.react:react-native:+"
+ 
+-  // Add a dependency on NitroModules
+   implementation project(":react-native-nitro-modules")
+ 
+-  // Add a dependency on mmkv core (this ships a C++ prefab)
+   implementation "io.github.zhongwuzw:mmkv:2.4.0"
+ }
+-
+diff --git a/node_modules/react-native-mmkv/android/src/main/AndroidManifest.xml b/node_modules/react-native-mmkv/android/src/main/AndroidManifest.xml
+index a2f47b6..f8f30ff 100644
+--- a/node_modules/react-native-mmkv/android/src/main/AndroidManifest.xml
++++ b/node_modules/react-native-mmkv/android/src/main/AndroidManifest.xml
+@@ -1,2 +1,3 @@
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++          package="com.margelo.nitro.mmkv">
+ </manifest>
