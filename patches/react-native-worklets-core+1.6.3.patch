@@ -1,0 +1,35 @@
+diff --git a/node_modules/react-native-worklets-core/android/src/main/java/com/worklets/WorkletsModule.java b/node_modules/react-native-worklets-core/android/src/main/java/com/worklets/WorkletsModule.java
+index eef2791..f580343 100644
+--- a/node_modules/react-native-worklets-core/android/src/main/java/com/worklets/WorkletsModule.java
++++ b/node_modules/react-native-worklets-core/android/src/main/java/com/worklets/WorkletsModule.java
+@@ -35,6 +35,21 @@ public class WorkletsModule extends com.worklets.WorkletsSpec {
+ 
+   public static native boolean nativeInstall(long jsiRuntimeRef, CallInvokerHolder jsCallInvokerHolder);
+ 
++  private static CallInvokerHolder getJSCallInvokerHolder(ReactApplicationContext context) {
++    try {
++      java.lang.reflect.Method method = context.getClass().getMethod("getJSCallInvokerHolder");
++      return (CallInvokerHolderImpl) method.invoke(context);
++    } catch (Exception ignored) {
++    }
++    try {
++      Object catalystInstance = context.getClass().getMethod("getCatalystInstance").invoke(context);
++      java.lang.reflect.Method method = catalystInstance.getClass().getMethod("getJSCallInvokerHolder");
++      return (CallInvokerHolder) method.invoke(catalystInstance);
++    } catch (Exception e) {
++      throw new RuntimeException("Failed to get JSCallInvokerHolder", e);
++    }
++  }
++
+   @ReactMethod(isBlockingSynchronousMethod = true)
+   public boolean install() {
+     try {
+@@ -45,7 +60,7 @@ public class WorkletsModule extends com.worklets.WorkletsSpec {
+       }
+ 
+       long jsiRuntimeRef = context.getJavaScriptContextHolder().get();
+-      CallInvokerHolder jsCallInvokerHolder = context.getCatalystInstance().getJSCallInvokerHolder();
++      CallInvokerHolder jsCallInvokerHolder = getJSCallInvokerHolder(context);
+       return nativeInstall(jsiRuntimeRef, jsCallInvokerHolder);
+     } catch (Exception exception) {
+       Log.e(NAME, "Failed to initialize react-native-worklets-core!", exception);
