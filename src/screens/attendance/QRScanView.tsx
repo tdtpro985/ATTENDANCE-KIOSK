@@ -54,6 +54,8 @@ export default function QRScanView({
         device={device}
         isActive={true}
         codeScanner={codeScanner}
+        pixelFormat="yuv"
+        androidPreviewViewType="texture-view"
         outputOrientation="device"
         resizeMode="cover"
       />
