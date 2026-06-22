@@ -87,7 +87,7 @@ export default function QRScanView({
           <View style={[styles.corner, styles.cornerTopRight, { borderTopRightRadius: 0 }]} />
           <View style={[styles.corner, styles.cornerBottomLeft, { borderBottomLeftRadius: 0 }]} />
           <View style={[styles.corner, styles.cornerBottomRight, { borderBottomRightRadius: 0 }]} />
-          
+
           {qrSuccessLocal ? (
             <MaterialCommunityIcons name="check-circle" size={100} color="#4ade80" />
           ) : isQrLoading ? (
@@ -103,7 +103,7 @@ export default function QRScanView({
         <View style={styles.qrScannerArea}>
           {/* Transparent placeholder that keeps the flex layout aligned with absolute cutout */}
           <View style={{ width: SCAN_BOX_SIZE, height: SCAN_BOX_SIZE, marginBottom: isTablet ? 95 : 35 }} />
-          
+
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
             {!qrSuccessLocal && !isQrLoading && (
               <MaterialCommunityIcons name="qrcode" size={isTablet ? 24 : 18} color="#F27121" style={{ marginRight: 8 }} />

@@ -1,3 +1,53 @@
+diff --git a/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraView.kt b/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraView.kt
+index 64a751e..83c1c27 100644
+--- a/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraView.kt
++++ b/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraView.kt
+@@ -144,6 +144,24 @@ class CameraView(context: Context) :
+     fpsSampleCollector.stop()
+   }
+ 
++  override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
++    super.onLayout(changed, left, top, right, bottom)
++    val w = right - left
++    val h = bottom - top
++    // If updatePreview() deferred because dimensions were 0, trigger it now.
++    if (previewView == null && w > 0 && h > 0) {
++      updatePreview()
++    }
++    // Ensure PreviewView always matches CameraView's Yoga-assigned dimensions.
++    previewView?.let { pv ->
++      pv.measure(
++        android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
++        android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY)
++      )
++      pv.layout(0, 0, w, h)
++    }
++  }
++
+   fun destroy() {
+     cameraSession.close()
+   }
+@@ -262,8 +280,19 @@ class CameraView(context: Context) :
+ 
+   private fun updatePreview() {
+     mainCoroutineScope.launch {
++      // In RN Fabric/bridgeless release builds, Yoga calls layout() with real dimensions
++      // but measure() may still report 0 (UNSPECIFIED spec). Use width/height (right-left,
++      // bottom-top from layout()) instead of measuredWidth/measuredHeight (from measure()).
++      if (width == 0 || height == 0) return@launch
+       if (preview && previewView == null) {
+-        // User enabled Preview, add the PreviewView
++        // Force measuredWidth/measuredHeight to match layout bounds before addView.
++        // installHierarchyFitter uses measuredWidth in its onChildViewAdded callback;
++        // if Fabric measured with UNSPECIFIED spec (measuredWidth=0) but laid out with
++        // real bounds (width>0), the fitter would re-measure at 0x0 and lock PreviewView.
++        measure(
++          android.view.View.MeasureSpec.makeMeasureSpec(width, android.view.View.MeasureSpec.EXACTLY),
++          android.view.View.MeasureSpec.makeMeasureSpec(height, android.view.View.MeasureSpec.EXACTLY)
++        )
+         previewView = createPreviewView()
+         addView(previewView)
+       } else if (!preview && previewView != null) {
 diff --git a/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraViewManager.kt b/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraViewManager.kt
 index c5845b7..085ecca 100644
 --- a/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraViewManager.kt

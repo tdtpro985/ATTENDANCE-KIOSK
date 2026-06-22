@@ -1,0 +1,4 @@
+# Override .gitignore - node_modules needed for local builds
+android/
+ios/
+.expo/

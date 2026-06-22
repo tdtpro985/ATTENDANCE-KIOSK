@@ -2545,7 +2545,7 @@ export function useAttendance() {
   const isOnline = !!(isConnected && hasGoodInternet);
 
   return {
-    colors, device, hasPermission, requestPermission,
+    colors, device, backDevice, hasPermission, requestPermission,
     hasLocationPermission, requestLocationPermission,
     cameraFormat, cameraRef, codeScanner, frameProcessor,
     flashAnim, scanLineAnim, scaleAnim,

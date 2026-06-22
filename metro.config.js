@@ -25,5 +25,14 @@ config.transformer.getTransformOptions = async () => ({
 config.resolver = {
   ...config.resolver,
   assetExts: [...(config.resolver.assetExts || []), 'onnx'],
+  resolveRequest: (context, moduleName, platform) => {
+    if (moduleName === 'react-native-vision-camera-face-detector') {
+      return {
+        filePath: path.resolve(__dirname, 'src/mocks/react-native-vision-camera-face-detector/index.js'),
+        type: 'sourceFile',
+      };
+    }
+    return context.resolveRequest(context, moduleName, platform);
+  },
 };
 module.exports = config;
