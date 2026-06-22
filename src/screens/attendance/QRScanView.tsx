@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, Animated, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Camera, CameraProps } from 'react-native-vision-camera';
+import { Camera, CameraProps, CameraRuntimeError } from 'react-native-vision-camera';
 import { styles } from './style/styles';
 
 type Props = {
@@ -40,6 +40,7 @@ export default function QRScanView({
   onBack,
   onOpenOffline,
 }: Props) {
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isTablet = Math.min(screenWidth, screenHeight) >= 600;
   const SCAN_BOX_SIZE = isTablet ? 300 : 190;
@@ -54,11 +55,15 @@ export default function QRScanView({
         device={device}
         isActive={true}
         codeScanner={codeScanner}
-        pixelFormat="yuv"
         androidPreviewViewType="texture-view"
-        outputOrientation="device"
         resizeMode="cover"
+        onError={(e: CameraRuntimeError) => setCameraError(`${e.code}: ${e.message}`)}
       />
+      {cameraError != null && (
+        <View style={{ position: 'absolute', top: 80, left: 16, right: 16, backgroundColor: 'rgba(200,0,0,0.85)', padding: 12, borderRadius: 8, zIndex: 999 }}>
+          <Text style={{ color: '#fff', fontSize: 11, fontFamily: 'monospace' }}>{cameraError}</Text>
+        </View>
+      )}
       <Animated.View style={[styles.snapFlash, { opacity: flashAnim }]} pointerEvents="none" />
 
       {/* 1. Behind-the-scenes scanner overlay (renders under SafeAreaView) */}
