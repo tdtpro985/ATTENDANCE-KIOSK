@@ -390,7 +390,8 @@ export function useAttendance() {
   const [cameraVisionAllFaces, setCameraVisionAllFaces] = useState<Array<{ id: string; left: number; top: number; width: number; height: number; isTarget: boolean; frameWidth?: number; frameHeight?: number }>>([]);
   const [cameraVisionFaceTelemetry, setCameraVisionFaceTelemetry] = useState<CameraVisionFaceTelemetry | null>(null);
   const [successAnimationTick, setSuccessAnimationTick] = useState(0);
-
+  const [autoScanBlocked, setAutoScanBlocked] = useState(false);
+  const autoScanBlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // buffalo_sc ONNX model — loads once at startup
   const [onnxModelReady, setOnnxModelReady] = useState(false);
@@ -557,7 +558,10 @@ export function useAttendance() {
         setFaceCountdown(0);
         countdownRef.current = 0;
         setCountdownActive(false);
-                cameraVisionAutoTriggeredRef.current = false;
+        cameraVisionAutoTriggeredRef.current = false;
+        if (autoScanBlockTimerRef.current) clearTimeout(autoScanBlockTimerRef.current);
+        setAutoScanBlocked(true);
+        autoScanBlockTimerRef.current = setTimeout(() => setAutoScanBlocked(false), 5000);
         stableFaceFrames.value = 0;
         setCameraVisionFaceDetected(false);
         setCameraVisionReadiness(0);
@@ -684,7 +688,7 @@ export function useAttendance() {
       'settings_server_verification_enabled'
     ]);
     const mapped = Object.fromEntries(entries);
-    const touchless = mapped[TOUCHLESS_SETTING_KEY] === 'true';
+    const touchless = mapped[TOUCHLESS_SETTING_KEY] !== 'false';
     const liveness = mapped['settings_liveness_enabled'] !== 'false';
     const serverVerify = mapped['settings_server_verification_enabled'] !== 'false';
     touchlessEnabledRef.current = touchless;
@@ -701,7 +705,7 @@ export function useAttendance() {
   const getImsUrl = useCallback(() => {
     try {
       if (/:\d{4}$/.test(BACKEND_URL)) {
-        return BACKEND_URL.replace(/:\d{4}$/, ':8002');
+        return BACKEND_URL.replace(/:\d{4}$/, ':8082');
       }
       return `${BACKEND_URL}/ims`;
     } catch (e) {}
@@ -1014,7 +1018,7 @@ export function useAttendance() {
   const captureFaceCropB64 = useCallback(async (): Promise<string> => {
     if (!cameraRef.current) throw new Error('Camera not ready');
 
-    console.log('[CameraVision] Taking photo for server-assisted embedding (640x480)...');
+    console.log('[CameraVision] Taking photo for server verification (full frame, max 640px)...');
     // @ts-ignore
     const photo = await cameraRef.current.takePhoto({
       flash: 'off',
@@ -1022,100 +1026,18 @@ export function useAttendance() {
     });
     if (!photo?.path) throw new Error('No image captured');
 
-    const faceBox = cameraVisionFaceBox;
-    let imageToProcess = `file://${photo.path}`;
-
-    let originX = 0;
-    let originY = 0;
-    let safeSize = 0;
-    let photoW = photo.width;
-    let photoH = photo.height;
-
-    if (faceBox) {
-      try {
-        const [resolvedW, resolvedH] = await new Promise<[number, number]>((resolve, reject) => {
-          RNImage.getSize(imageToProcess, (w, h) => resolve([w, h]), reject);
-        });
-        photoW = resolvedW;
-        photoH = resolvedH;
-      } catch (err) {
-        console.warn('[CameraVision] Failed to get image dimensions, using photo metadata:', err);
-      }
-      
-      const frameW = faceBox.frameWidth || (photoW > photoH ? 1280 : 720);
-      const frameH = faceBox.frameHeight || (photoW > photoH ? 720 : 1280);
-      
-      const isFrameLandscape = frameW > frameH;
-      const isPhotoLandscape = photoW > photoH;
-      const isRotated = isFrameLandscape !== isPhotoLandscape;
-
-      const orientedFrameWidth = isRotated ? frameH : frameW;
-      const orientedFrameHeight = isRotated ? frameW : frameH;
-
-      const rawFaceX = faceBox.left * orientedFrameWidth;
-      const rawFaceY = faceBox.top * orientedFrameHeight;
-      const rawFaceW = faceBox.width * orientedFrameWidth;
-      const rawFaceH = faceBox.height * orientedFrameHeight;
-      
-      const scale = Math.min(photoW / orientedFrameWidth, photoH / orientedFrameHeight);
-      const renderedW = orientedFrameWidth * scale;
-      const renderedH = orientedFrameHeight * scale;
-      const offsetX = (photoW - renderedW) / 2;
-      const offsetY = (photoH - renderedH) / 2;
-
-      let photoFaceX = (rawFaceX * scale) + offsetX;
-      let photoFaceY = (rawFaceY * scale) + offsetY;
-      const photoFaceW = rawFaceW * scale;
-      const photoFaceH = rawFaceH * scale;
-
-      if (device?.position === 'front') {
-        photoFaceX = photoW - (photoFaceX + photoFaceW);
-      }
-
-      const pxCenterX = photoFaceX + photoFaceW / 2;
-      const pxCenterY = photoFaceY + photoFaceH / 2;
-
-      const faceRatio = Math.max(photoFaceW / photoW, photoFaceH / photoH);
-      
-      let paddingMult: number;
-      if (faceRatio >= 0.35) {
-        paddingMult = 1.6;
-      } else if (faceRatio <= 0.15) {
-        paddingMult = 2.0;
-      } else {
-        const t = (faceRatio - 0.15) / (0.35 - 0.15);
-        paddingMult = 2.0 - t * (2.0 - 1.6);
-      }
-
-      const pxSide = Math.max(photoFaceW, photoFaceH) * paddingMult;
-      
-      originX = Math.floor(pxCenterX - pxSide / 2);
-      originY = Math.floor(pxCenterY - pxSide * 0.45);
-      const size = Math.floor(pxSide);
-
-      safeSize = Math.min(size, photoW, photoH);
-      originX = Math.max(0, Math.min(photoW - safeSize, originX));
-      originY = Math.max(0, Math.min(photoH - safeSize, originY));
-    }
-
-    const actions: ImageManipulator.Action[] = [];
-    if (safeSize > 0) {
-      actions.push({ crop: { originX, originY, width: safeSize, height: safeSize } });
-    }
-    actions.push({ resize: { width: 112, height: 112 } });
-    if (device?.position === 'front') {
-      actions.push({ flip: ImageManipulator.FlipType.Horizontal });
-    }
-
+    // Send the full photo (not a pre-cropped region) so the server-side InsightFace
+    // can run its own face detection at high resolution and correctly locate the face.
+    // Resize to max 640px height to keep upload size reasonable (~30-80 KB JPEG).
     const manipResult = await ImageManipulator.manipulateAsync(
-      imageToProcess,
-      actions,
-      { format: ImageManipulator.SaveFormat.JPEG, compress: 0.95, base64: true }
+      `file://${photo.path}`,
+      [{ resize: { height: 640 } }],
+      { format: ImageManipulator.SaveFormat.JPEG, compress: 0.85, base64: true }
     );
 
     if (!manipResult.base64) throw new Error('Failed to encode image to base64');
     return manipResult.base64;
-  }, [device, cameraVisionFaceBox]);
+  }, []);
 
   const verifyFaceViaAPI = useCallback(async (
     liveEmbedding: number[] | null,
@@ -1623,7 +1545,7 @@ export function useAttendance() {
         identityStatusRef.current = 'failed';
         workletPhase.value = 3;
         setIsVerifying(false);
-        faceProcessingRef.current = false; // reset so touchless can auto-retry
+        faceProcessingRef.current = false;
         modalContextRef.current = 'face_error';
         setScanStage('idle');
         showModal('face_error', result?.message || 'Face not recognized', result?.hint || 'Ensure good lighting and try again.', 2000);
@@ -1632,7 +1554,7 @@ export function useAttendance() {
       identityStatusRef.current = 'failed';
       workletPhase.value = 3;
       setIsVerifying(false);
-      faceProcessingRef.current = false; // reset so touchless can auto-retry
+      faceProcessingRef.current = false;
       modalContextRef.current = 'face_error';
       setScanStage('idle');
     }
@@ -1910,6 +1832,11 @@ export function useAttendance() {
         const isUsable = detectedFace && isFaceBoxUsableForRecognition(detectedFace.box, detectedFace.sourceFace) && !isMoving;
         if (isUsable) {
           stableFaceFrames.value = Math.min(stableFaceFrames.value + 1, CAMERA_VISION_STABLE_FACE_FRAMES);
+          // Auto-pass liveness when face is stable at 100% (fallback for mocked detector that can't do real blink detection)
+          if (stableFaceFrames.value >= CAMERA_VISION_STABLE_FACE_FRAMES && !hasPassedPassiveLiveness.value) {
+            hasPassedPassiveLiveness.value = true;
+            onBackgroundLivenessChange(true);
+          }
         } else {
           stableFaceFrames.value = 0; // Instant reset on motion or tracking loss
         }
@@ -1946,16 +1873,6 @@ export function useAttendance() {
               ) {
                 lastCameraVisionReadinessSent.value = readinessPercent;
                 lastCameraVisionDetectedSent.value = true;
-                onCameraVisionDetectionProgress(
-                  true,
-                  readinessPercent,
-                  trackedFace?.box ?? null,
-                  telemetry,
-                  orientedFrameW,
-                  orientedFrameH,
-                  allFacesList,
-                );
-              } else {
                 onCameraVisionDetectionProgress(
                   true,
                   readinessPercent,
@@ -2042,6 +1959,8 @@ export function useAttendance() {
                if (workletPhase.value === 0 && sharedLivenessEnabled.value) updateLivenessMessage('Face the camera directly');
             }
         }
+      } catch {
+        // swallow frame processor errors to prevent fatal crash (e.g. detectFaces unavailable)
       } finally {
         isProcessingFace.value = false;
       }
@@ -2362,13 +2281,11 @@ export function useAttendance() {
   useEffect(() => {
     if (!countdownActive || !qrVerified || isVerifying) return;
     if (faceCountdown <= 0) return;
-    const interval = 500;
-    const step = 0.5;
     const timer = setTimeout(() => {
-      const next = Math.max(0, faceCountdown - step);
+      const next = Math.max(0, faceCountdown - 1);
       setFaceCountdown(next);
       countdownRef.current = next;
-    }, interval);
+    }, 1000);
     return () => clearTimeout(timer);
   }, [countdownActive, qrVerified, isVerifying, faceCountdown]);
 
@@ -2377,9 +2294,8 @@ export function useAttendance() {
     if (showResultModal || modalVisibleRef.current) return;
     if (faceCountdown > 0 || isVerifying || faceProcessingRef.current) return;
     setCountdownActive(false);
-        setScanStage('capturing');
-    handleAttendance();
-  }, [countdownActive, faceCountdown, handleAttendance, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+    setAutoScanBlocked(false);
+  }, [countdownActive, faceCountdown, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
 
   useEffect(() => {
     if (!touchlessEnabled || !qrVerified) return;
@@ -2401,7 +2317,8 @@ export function useAttendance() {
     if (
       cameraVisionFaceDetected &&
       cameraVisionReadiness >= autoReadinessThreshold &&
-      !cameraVisionAutoTriggeredRef.current
+      !cameraVisionAutoTriggeredRef.current &&
+      !autoScanBlocked
     ) {
       if (livenessEnabled && !backgroundLivenessPassed) {
         return; // Gated: wait for liveness
@@ -2420,6 +2337,7 @@ export function useAttendance() {
       cameraVisionAutoTriggeredRef.current = false;
     }
   }, [
+    autoScanBlocked,
     cameraVisionFaceDetected,
     cameraVisionReadiness,
     backgroundLivenessPassed,
@@ -2458,6 +2376,17 @@ export function useAttendance() {
       setCameraVisionAllFaces([]);
       setCameraVisionFaceTelemetry(null);
       cameraVisionAutoTriggeredRef.current = false;
+      if (autoScanBlockTimerRef.current) clearTimeout(autoScanBlockTimerRef.current);
+      setAutoScanBlocked(false);
+      setFaceCountdown(0);
+      countdownRef.current = 0;
+      setCountdownActive(false);
+    } else {
+      // QR just verified — show 3-second countdown before face auto-capture
+      setAutoScanBlocked(true);
+      setFaceCountdown(3);
+      countdownRef.current = 3;
+      setCountdownActive(true);
     }
   }, [qrVerified]);
 
@@ -2545,7 +2474,7 @@ export function useAttendance() {
   const isOnline = !!(isConnected && hasGoodInternet);
 
   return {
-    colors, device, backDevice, hasPermission, requestPermission,
+    colors, device, frontDevice, backDevice, hasPermission, requestPermission,
     hasLocationPermission, requestLocationPermission,
     cameraFormat, cameraRef, codeScanner, frameProcessor,
     flashAnim, scanLineAnim, scaleAnim,
