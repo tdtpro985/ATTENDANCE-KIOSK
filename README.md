@@ -40,17 +40,46 @@ HRIS-KIOSK/
 
 ## 3. Installation & Configuration
 
-### 3.1. Frontend App Installation
-1. Navigate to the project root and install Node packages:
+### 3.1. Prerequisites & Environment Setup
+Before building the app, make sure your machine has the following tools installed and configured:
+1. **JDK 17**: Ensure Java 17 is installed. Set your `JAVA_HOME` environment variable to point to it.
+2. **Android SDK & Build Tools**:
+   * Install Android Studio.
+   * Open Android Studio -> SDK Manager -> SDK Tools, and verify **NDK (Side-by-Side)** and **CMake** are installed.
+3. **Environment Variables**:
+   * Set `ANDROID_HOME` to your Android SDK path (e.g., `C:\Users\<Username>\AppData\Local\Android\Sdk`).
+   * Add platform-tools to your PATH (e.g., `%ANDROID_HOME%\platform-tools` on Windows).
+
+### 3.2. Initial Pull & Setup Steps
+If you are pulling this repository for the first time, run the following steps in sequence:
+
+1. **Install packages** (use `--legacy-peer-deps` to bypass React 19 / RN 0.81 peer dependency conflicts and ensure `react-native-nitro-modules` is installed at the root of `node_modules`):
    ```bash
-   npm install
+   npm install --legacy-peer-deps
    ```
-2. **Prebuild the Native Directories:** Because this project uses custom native modules (like Vision Camera and ONNX Runtime), you must generate the native directories (which will automatically configure the custom ONNX plugins in `app.json`):
+2. **Prebuild & Sync Native Files**: Run the Expo native compiler generator to sync autolinking and manual C++ bindings (e.g., ONNX manual link):
    ```bash
-   npx expo prebuild
+   npx expo prebuild --clean
+   ```
+3. **Verify Environment Configuration**: If Gradle fails to locate your SDK path, create a `local.properties` file inside the `android/` directory:
+   ```properties
+   sdk.dir=C\:\\Users\\<Username>\\AppData\\Local\\Android\\Sdk
    ```
 
-### 3.2. PHP Backend Configuration
+### 3.3. Troubleshooting Common Build Issues
+* **Error: `Project with path ':react-native-nitro-modules' could not be found...`**:
+  This happens if the Gradle daemon caches an outdated build configuration (e.g., if code generation assets were autolinked before Node modules were fully installed). Fix this by stopping the daemon, clearing native builds, and running a clean prebuild:
+  ```bash
+  # 1. Stop cached Gradle daemons
+  cd android
+  .\gradlew.bat --stop
+  cd ..
+  
+  # 2. Clean and regenerate autolink files
+  npx expo prebuild --clean
+  ```
+
+### 3.4. PHP Backend Configuration
 1. Navigate to the `backend-php` directory:
    ```bash
    cd backend-php
@@ -86,7 +115,7 @@ HRIS-KIOSK/
 > [!TIP]
 > **Automated Configuration:** If you run the system using the orchestrator command `npm run dev` (Recommended), it will automatically detect your local network IP and dynamically update `IMS_URL` and `EXPO_PUBLIC_BACKEND_IP` in your `.env` file.
 
-### 3.3. Python Face Server Configuration
+### 3.5. Python Face Server Configuration
 1. Navigate to the `face_server` directory:
    ```bash
    cd face_server
