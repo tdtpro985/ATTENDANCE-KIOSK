@@ -51,18 +51,36 @@ export default function QRScanView({
   return (
     <>
       <Camera
-        style={styles.fullScreenCamera}
+        style={{ position: 'absolute', top: 0, left: 0, width: screenWidth, height: screenHeight }}
         device={device}
         isActive={true}
         codeScanner={codeScanner}
-        androidPreviewViewType="texture-view"
+        pixelFormat="yuv"
+        androidPreviewViewType="surface-view"
+        outputOrientation="device"
         resizeMode="cover"
-        onError={(e: CameraRuntimeError) => setCameraError(`${e.code}: ${e.message}`)}
+        onError={(e: CameraRuntimeError) => setCameraError(e.code)}
       />
       {cameraError != null && (
-        <View style={{ position: 'absolute', top: 80, left: 16, right: 16, backgroundColor: 'rgba(200,0,0,0.85)', padding: 12, borderRadius: 8, zIndex: 999 }}>
-          <Text style={{ color: '#fff', fontSize: 11, fontFamily: 'monospace' }}>{cameraError}</Text>
-        </View>
+        cameraError === 'system/camera-is-restricted' ? (
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 32 }}>
+            <MaterialCommunityIcons name="camera-off" size={64} color="#F27121" style={{ marginBottom: 20 }} />
+            <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 }}>
+              Camera Disabled by Device Policy
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, textAlign: 'center', lineHeight: 20 }}>
+              The camera has been restricted by the operating system or an administrator policy (MDM/Knox).{'\n\n'}
+              Contact your IT administrator to enable camera access for this kiosk device.
+            </Text>
+            <TouchableOpacity onPress={onBack} style={{ marginTop: 32, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#F27121', borderRadius: 8 }}>
+              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={{ position: 'absolute', top: 80, left: 16, right: 16, backgroundColor: 'rgba(200,0,0,0.85)', padding: 12, borderRadius: 8, zIndex: 999 }}>
+            <Text style={{ color: '#fff', fontSize: 11, fontFamily: 'monospace' }}>{cameraError}</Text>
+          </View>
+        )
       )}
       <Animated.View style={[styles.snapFlash, { opacity: flashAnim }]} pointerEvents="none" />
 

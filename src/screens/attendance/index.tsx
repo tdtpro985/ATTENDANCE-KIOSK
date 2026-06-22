@@ -10,7 +10,7 @@ import type { AttendanceProps } from './types';
 export default function AttendanceScanner({ onBack, onOpenOffline }: AttendanceProps) {
   const state = useAttendance();
 
-  if (state.isLoading || !state.device || !state.backDevice) {
+  if (state.isLoading || !state.device || !state.frontDevice) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#F27121" />
@@ -55,7 +55,7 @@ export default function AttendanceScanner({ onBack, onOpenOffline }: AttendanceP
     <View style={styles.container}>
       {!state.qrVerified ? (
         <QRScanView
-          device={state.backDevice}
+          device={state.frontDevice}
           codeScanner={state.codeScanner}
           flashAnim={state.flashAnim}
           scanLineAnim={state.scanLineAnim}

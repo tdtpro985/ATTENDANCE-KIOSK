@@ -142,7 +142,7 @@ export default function FaceScanView({
   const requiresAndroidRotationFix = Platform.OS === 'android';
 
   const getDynamicCameraStyle = () => {
-    if (!requiresAndroidRotationFix) return styles.fullScreenCamera;
+    if (!requiresAndroidRotationFix) return { position: 'absolute' as const, top: 0, left: 0, width, height };
 
     if (orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT) {
       return {
@@ -165,9 +165,20 @@ export default function FaceScanView({
         overflow: 'hidden' as const
       };
     } else if (orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN) {
-      return [styles.fullScreenCamera, { transform: [{ rotate: '180deg' }], overflow: 'hidden' as const }];
+      return { position: 'absolute' as const, top: 0, left: 0, width, height, transform: [{ rotate: '180deg' }], overflow: 'hidden' as const };
     }
-    return styles.fullScreenCamera;
+    return { position: 'absolute' as const, top: 0, left: 0, width, height };
+  };
+
+  const getCameraInnerStyle = () => {
+    if (
+      requiresAndroidRotationFix &&
+      (orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+        orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT)
+    ) {
+      return { position: 'absolute' as const, top: 0, left: 0, width: overlayHeight, height: overlayWidth };
+    }
+    return { position: 'absolute' as const, top: 0, left: 0, width, height };
   };
 
   const fallbackFaceBoxNormalized = { left: 0.42, top: 0.08, width: 0.36, height: 0.5 };
@@ -538,7 +549,7 @@ export default function FaceScanView({
     return (
       <View style={styles.portraitFaceContainer} onLayout={handleOverlayLayout}>
         <View style={getDynamicCameraStyle()}>
-          <Camera ref={cameraRef} style={styles.fullScreenCamera} device={device} format={cameraFormat} isActive={true} photo={true} pixelFormat="yuv" frameProcessor={frameProcessor} androidPreviewViewType="texture-view" outputOrientation="device" resizeMode="cover" photoQualityBalance="speed" />
+          <Camera ref={cameraRef} style={getCameraInnerStyle()} device={device} format={cameraFormat} isActive={true} photo={true} pixelFormat="yuv" frameProcessor={frameProcessor} androidPreviewViewType="surface-view" outputOrientation="device" resizeMode="cover" photoQualityBalance="speed" />
         </View>
         <Animated.View style={[styles.snapFlash, { opacity: flashAnim }]} pointerEvents="none" />
         <View style={styles.cameraTintLight} pointerEvents="none" />
@@ -600,7 +611,7 @@ export default function FaceScanView({
       </View>
       <View style={styles.cameraPanel} onLayout={handleOverlayLayout}>
         <View style={getDynamicCameraStyle()}>
-          <Camera ref={cameraRef} style={styles.fullScreenCamera} device={device} format={cameraFormat} isActive={true} photo={true} pixelFormat="yuv" frameProcessor={frameProcessor} androidPreviewViewType="texture-view" outputOrientation="device" resizeMode="cover" photoQualityBalance="speed" />
+          <Camera ref={cameraRef} style={getCameraInnerStyle()} device={device} format={cameraFormat} isActive={true} photo={true} pixelFormat="yuv" frameProcessor={frameProcessor} androidPreviewViewType="surface-view" outputOrientation="device" resizeMode="cover" photoQualityBalance="speed" />
         </View>
         <Animated.View style={[styles.snapFlash, { opacity: flashAnim }]} pointerEvents="none" />
         <View style={styles.cameraTintLight} pointerEvents="none" />
