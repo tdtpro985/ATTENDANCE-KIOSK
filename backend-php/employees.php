@@ -32,19 +32,34 @@ $detailId = isset($_GET['detail_id']) ? $_GET['detail_id'] : null;
 
 if ($detailId) {
     if (defined('KIOSK_MODE') && KIOSK_MODE === 'intern') {
-        $internId = (int)preg_replace('/^intern_/', '', $detailId);
+        $rawId = preg_replace('/^intern_/', '', $detailId);
+        $withPrefix = 'TDTINTRN' . $rawId;
+        $numericId = (int)preg_replace('/^TDTINTRN/i', '', $rawId);
+        $hasHyphen = (strpos($rawId, '-') !== false);
+        
         $db = getImsConnection();
-        $stmt = $db->prepare("SELECT i.id, i.first_name, i.last_name, i.email, i.profile_photo, i.face_embedding, i.qr_code, d.name AS dept_name
-                              FROM interns i
-                              LEFT JOIN departments d ON i.department_id = d.id
-                              WHERE i.id = ? AND i.status = 'Active'");
+        if ($hasHyphen) {
+            $stmt = $db->prepare("SELECT i.id, i.first_name, i.last_name, i.email, i.profile_photo, i.face_embedding, i.qr_code, d.name AS dept_name
+                                  FROM interns i
+                                  LEFT JOIN departments d ON i.department_id = d.id
+                                  WHERE (i.qr_code = ? OR i.qr_code = ?) AND i.status = 'Active'");
+        } else {
+            $stmt = $db->prepare("SELECT i.id, i.first_name, i.last_name, i.email, i.profile_photo, i.face_embedding, i.qr_code, d.name AS dept_name
+                                  FROM interns i
+                                  LEFT JOIN departments d ON i.department_id = d.id
+                                  WHERE (i.qr_code = ? OR i.qr_code = ? OR i.id = ?) AND i.status = 'Active'");
+        }
         $status = 404;
         $user = null;
         $profile_picture_hq = null;
         $err = 'Intern not found';
         
         if ($stmt !== false) {
-            $stmt->bind_param('i', $internId);
+            if ($hasHyphen) {
+                $stmt->bind_param('ss', $rawId, $withPrefix);
+            } else {
+                $stmt->bind_param('ssi', $rawId, $withPrefix, $numericId);
+            }
             if ($stmt->execute()) {
                 $row = $stmt->get_result()->fetch_assoc();
                 if ($row) {

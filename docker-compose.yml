@@ -1,0 +1,48 @@
+services:
+  backend-php:
+    build:
+      context: ./backend-php
+    container_name: hris_backend
+    restart: unless-stopped
+    environment:
+      IMS_DB_HOST: ims_db
+      IMS_DB_USER: ims_user
+      IMS_DB_PASS: ims_pass
+      IMS_DB_NAME: tdt_ims
+      IMS_URL: https://192.168.10.221:8085
+      FACE_SERVER_URL: http://face_server:5001
+      SUPABASE_URL: ""
+      SUPABASE_ANON_KEY: ""
+      SUPABASE_SERVICE_ROLE_KEY: ""
+    volumes:
+      - backend_storage:/var/www/HRIS-KIOSK/storage
+    ports:
+      - "8080:80"
+    networks:
+      - default
+      - shared_net
+
+  face_server:
+    build:
+      context: .
+      dockerfile: face_server/Dockerfile
+    container_name: hris_face_server
+    restart: unless-stopped
+    volumes:
+      - face_models:/app/assets
+    ports:
+      - "5001:5001"
+    networks:
+      - default
+      - shared_net
+
+
+networks:
+  default:
+  shared_net:
+    external: true
+
+
+volumes:
+  backend_storage:
+  face_models:

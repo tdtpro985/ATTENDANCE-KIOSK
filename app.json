@@ -4,7 +4,7 @@
     "slug": "TDT-KIOSK",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/tdt-logo-new.jpg",
+    "icon": "./assets/tdt-logo-new.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
