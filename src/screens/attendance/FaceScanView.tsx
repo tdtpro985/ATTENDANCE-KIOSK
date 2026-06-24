@@ -33,6 +33,7 @@ type Props = {
   isCapturingHardware: boolean;
   isClockingOut: boolean;
   touchlessEnabled: boolean;
+  touchlessCountdownEnabled: boolean;
   offlineModeEnabled: boolean;
   isOnline: boolean;
   livenessEnabled: boolean;
@@ -46,6 +47,7 @@ type Props = {
   successAnimationTick: number;
   pendingSyncCount: number;
   faceCountdown: number;
+  countdownValue: number | null;
   clockInTime: string;
   selectedUser: ResolvedUser | null;
   accentColor: string;
@@ -69,6 +71,7 @@ export default function FaceScanView({
   isCapturingHardware,
   isClockingOut,
   touchlessEnabled,
+  touchlessCountdownEnabled,
   offlineModeEnabled,
   isOnline,
   livenessEnabled,
@@ -82,6 +85,7 @@ export default function FaceScanView({
   successAnimationTick,
   pendingSyncCount,
   faceCountdown,
+  countdownValue,
   clockInTime,
   selectedUser,
   accentColor,
@@ -337,6 +341,16 @@ export default function FaceScanView({
   });
 
   const animatedInstructionCardStyle = useAnimatedStyle(() => {
+    if (scanStage === 'countdown') {
+      return {
+        top: 40,
+        left: 0,
+        right: 0,
+        opacity: showDetectionOverlay ? 1 : 0,
+        alignItems: 'center',
+        justifyContent: 'center',
+      };
+    }
     return {
       left: animatedFaceBoxLeft.value - 40,
       top: animatedFaceBoxTop.value - 50,
@@ -345,7 +359,7 @@ export default function FaceScanView({
       alignItems: 'center',
       justifyContent: 'center',
     };
-  });
+  }, [scanStage, showDetectionOverlay, livenessEnabled]);
 
   const [eyeStatusLabel, setEyeStatusLabel] = useState('Unknown');
   const eyesClosedSinceRef = useRef<number | null>(null);
@@ -399,6 +413,7 @@ export default function FaceScanView({
   })();
 
   const instructionText = (() => {
+    if (scanStage === 'countdown') return 'BE READY';
     if (scanStage === 'success') return 'FACE VERIFIED';
     if (showProcessingSpinner) return isClockingOut ? 'PROCESSING LOGOUT...' : 'VERIFYING IDENTITY...';
     if (isCameraVisionMode && scanStage === 'detecting') {
@@ -430,7 +445,7 @@ export default function FaceScanView({
       }
       return 'Hold steady for automatic capture';
     }
-    if (faceCountdown > 0) return 'Position your face';
+    if (faceCountdown > 0) return livenessEnabled ? livenessMessage.toUpperCase() : 'Position your face';
     return livenessMessage;
   })();
 
@@ -440,6 +455,8 @@ export default function FaceScanView({
       <View style={styles.fullScreenDetectionOverlay} pointerEvents="none">
         {/* Bystander faces overlay removed for A7 Lite performance */}
         {(() => {
+          if (touchlessCountdownEnabled) return null; // Hide face box completely when 3s countdown feature is enabled for performance
+          if (scanStage === 'countdown') return null; // Hide face box during countdown
           const isFaceReady = livenessEnabled ? backgroundLivenessPassed : (detectionPercent === 100);
           return (
             <AnimatedReanimated.View style={[styles.detectionFaceBox, (cameraVisionFaceDetected && isFaceReady) && styles.detectionFaceBoxActive, animatedFaceBoxStyle]} />
@@ -523,8 +540,8 @@ export default function FaceScanView({
           </Animated.View>
         ) : showProcessingSpinner ? (
           <ActivityIndicator size={80} color="#F27121" style={styles.faceIconBackground} />
-        ) : (faceCountdown > 0 && touchlessEnabled) ? (
-          <Text style={styles.countdownText}>{faceCountdown}</Text>
+        ) : (countdownValue !== null && touchlessEnabled) ? (
+          <Text style={styles.countdownText}>{countdownValue}</Text>
         ) : null}
       </View>
       {(!showDetectionOverlay || !livenessEnabled) && (

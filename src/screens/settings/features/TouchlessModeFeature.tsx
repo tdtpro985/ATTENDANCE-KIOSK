@@ -12,6 +12,7 @@ export function TouchlessModeFeature({ enabled, onToggle }: Props) {
     <SettingRow
       title="Touchless Mode"
       description="Enable automatic face capture without manual trigger"
+      onPress={() => onToggle(!enabled)}
       action={
         <Switch
           value={enabled}

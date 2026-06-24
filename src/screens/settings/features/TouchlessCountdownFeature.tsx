@@ -5,18 +5,21 @@ import { Colors } from '../../../config/theme';
 type Props = {
   enabled: boolean;
   onToggle: (value: boolean) => void;
+  isDisabled: boolean;
 };
 
-export function LivenessCheckFeature({ enabled, onToggle }: Props) {
+export function TouchlessCountdownFeature({ enabled, onToggle, isDisabled }: Props) {
   return (
     <SettingRow
-      title="Liveness Check"
-      description="Confirms a live person is present to prevent using photos or videos for attendance. Turn this off for faster scanning."
+      title="3-Second Countdown"
+      description="Give employees 3 seconds to prepare before auto-capturing."
+      disabled={isDisabled}
       onPress={() => onToggle(!enabled)}
       action={
         <Switch
           value={enabled}
           onValueChange={onToggle}
+          disabled={isDisabled}
           trackColor={{ false: Colors.steelGray, true: Colors.powerOrange }}
           thumbColor="#ffffff"
         />

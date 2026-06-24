@@ -7,6 +7,7 @@ import { BACKEND_URL } from '../../config/backend';
 import { useTheme, Colors } from '../../config/theme';
 
 import { TouchlessModeFeature } from './features/TouchlessModeFeature';
+import { TouchlessCountdownFeature } from './features/TouchlessCountdownFeature';
 import { SyncLocationFeature } from './features/SyncLocationFeature';
 import { ThemeSelectorFeature } from './features/ThemeSelectorFeature';
 import { LivenessCheckFeature } from './features/LivenessCheckFeature';
@@ -73,7 +74,7 @@ export default function Settings({ onBack }: Props) {
 
   // Shimmer animation for loading skeletons
   const shimmerTranslate = useRef(new Animated.Value(-1)).current;
-
+  const countdownHeightAnim = useRef(new Animated.Value(1)).current;
   const shortDimension = Math.min(windowWidth, windowHeight);
   const isTablet = shortDimension >= 768;
   const isSmallTablet = shortDimension >= 480 && shortDimension < 768;
@@ -138,49 +139,61 @@ export default function Settings({ onBack }: Props) {
   }, []);
   */
 
+  const [touchlessCountdownEnabled, setTouchlessCountdownEnabled] = useState(false);
+
   const loadSettings = useCallback(async () => {
     try {
-      const [settingsEntries, response] = await Promise.all([
-        AsyncStorage.multiGet([
-          TOUCHLESS_SETTING_KEY, 
-          'settings_liveness_enabled', 
-          AUTO_SYNC_SETTING_KEY,
-          'settings_server_verification_enabled'
-        ]),
-        fetch(`${BACKEND_URL}/settings.php`, {
-          headers: {
-            Accept: 'application/json',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }),
+      const settingsEntries = await AsyncStorage.multiGet([
+        TOUCHLESS_SETTING_KEY, 
+        'settings_touchless_countdown_enabled',
+        'settings_liveness_enabled', 
+        AUTO_SYNC_SETTING_KEY,
+        'settings_server_verification_enabled'
       ]);
 
       const localSettings = Object.fromEntries(settingsEntries);
-      setTouchlessEnabled(localSettings[TOUCHLESS_SETTING_KEY] === 'true');
+      const isTouchless = localSettings[TOUCHLESS_SETTING_KEY] === 'true';
+      setTouchlessEnabled(isTouchless);
+      countdownHeightAnim.setValue(isTouchless ? 1 : 0);
+      setTouchlessCountdownEnabled(localSettings['settings_touchless_countdown_enabled'] === 'true');
       setLivenessEnabled(localSettings['settings_liveness_enabled'] !== 'false');
       setAutoSyncEnabled(localSettings[AUTO_SYNC_SETTING_KEY] !== 'false');
       setServerVerifyEnabled(localSettings['settings_server_verification_enabled'] !== 'false');
 
-      // calculateStorageSize();
+      // Unblock UI immediately
+      setIsLoading(false);
+      settingsHasLoadedOnce = true;
 
-      const payload = await response.json();
-      if (payload?.ok) {
-        setBackendSettings((prev) => ({
-          ...prev,
-          ...payload.settings,
-        }));
-        if (payload.kiosk_mode) {
-          mmkv.set('kiosk_mode', payload.kiosk_mode);
-          setKioskMode(payload.kiosk_mode);
+      // Background network fetch
+      fetch(`${BACKEND_URL}/settings.php`, {
+        headers: {
+          Accept: 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      })
+      .then(res => res.json())
+      .then(payload => {
+        if (payload?.ok) {
+          setBackendSettings((prev) => ({
+            ...prev,
+            ...payload.settings,
+          }));
+          if (payload.kiosk_mode) {
+            mmkv.set('kiosk_mode', payload.kiosk_mode);
+            setKioskMode(payload.kiosk_mode);
+          }
         }
-      }
+      })
+      .catch((error) => {
+        console.log('Background settings load error', error);
+      });
+
     } catch (error: any) {
       console.log('Settings load error', error);
-    } finally {
       setIsLoading(false);
       settingsHasLoadedOnce = true;
     }
-  }, [/* calculateStorageSize */]);
+  }, []);
 
   useEffect(() => {
     loadSettings();
@@ -209,10 +222,29 @@ export default function Settings({ onBack }: Props) {
 
   const handleTouchlessChange = useCallback(async (value: boolean) => {
     setTouchlessEnabled(value);
+    Animated.timing(countdownHeightAnim, {
+      toValue: value ? 1 : 0,
+      duration: 300,
+      useNativeDriver: false, // Cannot use native driver for layout properties
+    }).start();
     try {
       await AsyncStorage.setItem(TOUCHLESS_SETTING_KEY, value ? 'true' : 'false');
     } catch {
       setTouchlessEnabled(!value);
+      Animated.timing(countdownHeightAnim, {
+        toValue: !value ? 1 : 0,
+        duration: 300,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [countdownHeightAnim]);
+
+  const handleTouchlessCountdownChange = useCallback(async (value: boolean) => {
+    setTouchlessCountdownEnabled(value);
+    try {
+      await AsyncStorage.setItem('settings_touchless_countdown_enabled', value ? 'true' : 'false');
+    } catch {
+      setTouchlessCountdownEnabled(!value);
     }
   }, []);
 
@@ -442,6 +474,20 @@ export default function Settings({ onBack }: Props) {
           <View style={styles.featureGrid}>
             <ServerVerificationFeature enabled={serverVerifyEnabled} onToggle={handleServerVerifyChange} />
             <TouchlessModeFeature enabled={touchlessEnabled} onToggle={handleTouchlessChange} />
+            <Animated.View style={{
+              overflow: 'hidden',
+              maxHeight: countdownHeightAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 150]
+              }),
+              marginTop: countdownHeightAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-16, 0] // -16 to counteract the gap when hidden
+              }),
+              marginBottom: 0
+            }}>
+              <TouchlessCountdownFeature enabled={touchlessCountdownEnabled} onToggle={handleTouchlessCountdownChange} isDisabled={!touchlessEnabled} />
+            </Animated.View>
             <LivenessCheckFeature enabled={livenessEnabled} onToggle={handleLivenessChange} />
           
             <AutoSyncFeature enabled={autoSyncEnabled} onToggle={handleAutoSyncChange} />

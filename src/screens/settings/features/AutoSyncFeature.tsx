@@ -12,6 +12,7 @@ export function AutoSyncFeature({ enabled, onToggle }: Props) {
     <SettingRow
       title="Auto-Sync Offline Logs"
       description="Automatically pushes pending attendance logs to the server when a stable internet connection is detected."
+      onPress={() => onToggle(!enabled)}
       action={
         <Switch
           value={enabled}
