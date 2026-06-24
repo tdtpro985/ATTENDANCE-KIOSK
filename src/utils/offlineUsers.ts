@@ -79,11 +79,10 @@ function parseQrHints(qrData: string) {
   const exact = qrData.trim();
   const logIdMatch = exact.match(/LOG_?ID:([0-9]+)/i);
   const usernameMatch = exact.match(/USER:([^|]+)/i);
-  const internMatch = exact.match(/TDTINTRN([0-9]+)/i);
 
   return {
     exact,
-    userId: logIdMatch?.[1]?.trim() ?? (internMatch ? `intern_${internMatch[1]}` : null),
+    userId: logIdMatch?.[1]?.trim() ?? null,
     username: usernameMatch?.[1]?.trim().toLowerCase() ?? null,
   };
 }

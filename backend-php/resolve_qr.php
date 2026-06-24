@@ -72,33 +72,18 @@ if (!$logId && !$username) {
 if ((defined('KIOSK_MODE') && KIOSK_MODE === 'intern') || strpos($logId ?? '', 'intern_') === 0 || strpos($username ?? '', 'intern_') === 0) {
     $rawIdentifier = $qr; // e.g. TDTINTRN2-2452
     $cleanIdentifier = preg_replace('/^TDTINTRN/i', '', $qr); // e.g. 2-2452
-    $numericId = (int)$cleanIdentifier; // e.g. 2
-    $hasHyphen = (strpos($cleanIdentifier, '-') !== false);
-
     $db = getImsConnection();
-    if ($hasHyphen) {
-        $stmt = $db->prepare("SELECT i.id, i.first_name, i.last_name, i.email, i.profile_photo, i.face_embedding, d.name AS dept_name
-                              FROM interns i
-                              LEFT JOIN departments d ON i.department_id = d.id
-                              WHERE (i.qr_code = ? OR i.qr_code = ?) AND i.status = 'Active'");
-        if ($stmt === false) {
-            http_response_code(500);
-            echo json_encode(['ok' => false, 'message' => 'Database error: ' . $db->error]);
-            exit;
-        }
-        $stmt->bind_param('ss', $rawIdentifier, $cleanIdentifier);
-    } else {
-        $stmt = $db->prepare("SELECT i.id, i.first_name, i.last_name, i.email, i.profile_photo, i.face_embedding, d.name AS dept_name
-                              FROM interns i
-                              LEFT JOIN departments d ON i.department_id = d.id
-                              WHERE (i.qr_code = ? OR i.qr_code = ? OR i.id = ?) AND i.status = 'Active'");
-        if ($stmt === false) {
-            http_response_code(500);
-            echo json_encode(['ok' => false, 'message' => 'Database error: ' . $db->error]);
-            exit;
-        }
-        $stmt->bind_param('ssi', $rawIdentifier, $cleanIdentifier, $numericId);
+    // Search strictly by i.qr_code (matching raw or clean string)
+    $stmt = $db->prepare("SELECT i.id, i.first_name, i.last_name, i.email, i.profile_photo, i.face_embedding, d.name AS dept_name
+                          FROM interns i
+                          LEFT JOIN departments d ON i.department_id = d.id
+                          WHERE (i.qr_code = ? OR i.qr_code = ?) AND i.status = 'Active'");
+    if ($stmt === false) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'message' => 'Database error: ' . $db->error]);
+        exit;
     }
+    $stmt->bind_param('ss', $rawIdentifier, $cleanIdentifier);
     if (!$stmt->execute()) {
         $stmt->close();
         http_response_code(500);
