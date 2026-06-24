@@ -70,26 +70,35 @@ if (!$logId && !$username) {
 }
 
 if ((defined('KIOSK_MODE') && KIOSK_MODE === 'intern') || strpos($logId ?? '', 'intern_') === 0 || strpos($username ?? '', 'intern_') === 0) {
-    $internId = 0;
-    if ($logId && strpos($logId, 'intern_') === 0) {
-        $internId = (int)str_replace('intern_', '', $logId);
-    } else if ($username && strpos($username, 'intern_') === 0) {
-        $internId = (int)str_replace('intern_', '', $username);
-    } else {
-        $internId = (int)($logId ?: $username);
-    }
+    $rawIdentifier = $qr; // e.g. TDTINTRN2-2452
+    $cleanIdentifier = preg_replace('/^TDTINTRN/i', '', $qr); // e.g. 2-2452
+    $numericId = (int)$cleanIdentifier; // e.g. 2
+    $hasHyphen = (strpos($cleanIdentifier, '-') !== false);
 
     $db = getImsConnection();
-    $stmt = $db->prepare("SELECT i.id, i.first_name, i.last_name, i.email, i.profile_photo, i.face_embedding, d.name AS dept_name
-                          FROM interns i
-                          LEFT JOIN departments d ON i.department_id = d.id
-                          WHERE i.id = ? AND i.status = 'Active'");
-    if ($stmt === false) {
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'message' => 'Database error: ' . $db->error]);
-        exit;
+    if ($hasHyphen) {
+        $stmt = $db->prepare("SELECT i.id, i.first_name, i.last_name, i.email, i.profile_photo, i.face_embedding, d.name AS dept_name
+                              FROM interns i
+                              LEFT JOIN departments d ON i.department_id = d.id
+                              WHERE (i.qr_code = ? OR i.qr_code = ?) AND i.status = 'Active'");
+        if ($stmt === false) {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'message' => 'Database error: ' . $db->error]);
+            exit;
+        }
+        $stmt->bind_param('ss', $rawIdentifier, $cleanIdentifier);
+    } else {
+        $stmt = $db->prepare("SELECT i.id, i.first_name, i.last_name, i.email, i.profile_photo, i.face_embedding, d.name AS dept_name
+                              FROM interns i
+                              LEFT JOIN departments d ON i.department_id = d.id
+                              WHERE (i.qr_code = ? OR i.qr_code = ? OR i.id = ?) AND i.status = 'Active'");
+        if ($stmt === false) {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'message' => 'Database error: ' . $db->error]);
+            exit;
+        }
+        $stmt->bind_param('ssi', $rawIdentifier, $cleanIdentifier, $numericId);
     }
-    $stmt->bind_param('i', $internId);
     if (!$stmt->execute()) {
         $stmt->close();
         http_response_code(500);
