@@ -173,7 +173,7 @@ export default function QRScanView({
           )}
           <View style={styles.welcomeContainer}>
             <Text style={[styles.waitingText, { textAlign: 'center' }, !isTablet && { fontSize: 12 }]}>
-              {kioskMode === 'intern' ? 'Waiting for intern QR...' : 'Waiting for employee QR...'}
+               Waiting for QR Code...
             </Text>
           </View>
         </View>
