@@ -192,10 +192,7 @@ export default function FaceScanView({
     }
   };
 
-  const animatedFaceBoxLeft = useSharedValue(fallbackFaceBoxPx.left);
-  const animatedFaceBoxTop = useSharedValue(fallbackFaceBoxPx.top);
-  const animatedFaceBoxWidth = useSharedValue(fallbackFaceBoxPx.width);
-  const animatedFaceBoxHeight = useSharedValue(fallbackFaceBoxPx.height);
+
 
   const mapFaceBoxToPx = (box: { left: number; top: number; width: number; height: number; frameWidth?: number; frameHeight?: number }) => {
     let nextPx: { left: number; top: number; width: number; height: number };
@@ -300,6 +297,18 @@ export default function FaceScanView({
     };
   };
 
+  const animatedFaceBoxLeft = useSharedValue(fallbackFaceBoxPx.left);
+  const animatedFaceBoxTop = useSharedValue(fallbackFaceBoxPx.top);
+  const animatedFaceBoxWidth = useSharedValue(fallbackFaceBoxPx.width);
+  const animatedFaceBoxHeight = useSharedValue(fallbackFaceBoxPx.height);
+  const animatedFaceBoxOpacity = useSharedValue(1);
+
+  const isFaceReady = livenessEnabled ? backgroundLivenessPassed : (detectionPercent >= (touchlessCountdownEnabled ? 1 : 65));
+
+  useEffect(() => {
+    animatedFaceBoxOpacity.value = withTiming(isFaceReady ? 0 : 1, { duration: 300 });
+  }, [isFaceReady]);
+
   useEffect(() => {
     const animation = { duration: 80 };
     if (!cameraVisionFaceBox) {
@@ -311,10 +320,16 @@ export default function FaceScanView({
     }
 
     const px = mapFaceBoxToPx(cameraVisionFaceBox);
-    animatedFaceBoxLeft.value = withTiming(px.left, animation);
-    animatedFaceBoxTop.value = withTiming(px.top, animation);
-    animatedFaceBoxWidth.value = withTiming(px.width, animation);
-    animatedFaceBoxHeight.value = withTiming(px.height, animation);
+    const scale = 0.85;
+    const nWidth = px.width * scale;
+    const nHeight = px.height * scale;
+    const nLeft = px.left + (px.width - nWidth) / 2;
+    const nTop = px.top + (px.height - nHeight) / 2;
+
+    animatedFaceBoxLeft.value = withTiming(nLeft, animation);
+    animatedFaceBoxTop.value = withTiming(nTop, animation);
+    animatedFaceBoxWidth.value = withTiming(nWidth, animation);
+    animatedFaceBoxHeight.value = withTiming(nHeight, animation);
   }, [cameraVisionFaceBox, overlayWidth, overlayHeight, isFrontCamera, fallbackFaceBoxPx]);
 
   const animatedFaceBoxStyle = useAnimatedStyle(() => {
@@ -323,6 +338,7 @@ export default function FaceScanView({
       top: animatedFaceBoxTop.value,
       width: animatedFaceBoxWidth.value,
       height: animatedFaceBoxHeight.value,
+      opacity: animatedFaceBoxOpacity.value,
     };
   });
 
@@ -341,21 +357,12 @@ export default function FaceScanView({
   });
 
   const animatedInstructionCardStyle = useAnimatedStyle(() => {
-    if (scanStage === 'countdown') {
-      return {
-        top: 40,
-        left: 0,
-        right: 0,
-        opacity: showDetectionOverlay ? 1 : 0,
-        alignItems: 'center',
-        justifyContent: 'center',
-      };
-    }
+    const targetOpacity = (showDetectionOverlay && livenessEnabled) ? 1 : 0;
     return {
       left: animatedFaceBoxLeft.value - 40,
       top: animatedFaceBoxTop.value - 50,
       width: animatedFaceBoxWidth.value + 80,
-      opacity: (showDetectionOverlay && livenessEnabled) ? 1 : 0,
+      opacity: withTiming(targetOpacity, { duration: 300 }),
       alignItems: 'center',
       justifyContent: 'center',
     };
@@ -413,19 +420,21 @@ export default function FaceScanView({
   })();
 
   const instructionText = (() => {
-    if (scanStage === 'countdown') return 'BE READY';
+    if (scanStage === 'countdown') {
+      if (livenessEnabled) return livenessMessage.toUpperCase();
+      return '';
+    }
     if (scanStage === 'success') return 'FACE VERIFIED';
     if (showProcessingSpinner) return isClockingOut ? 'PROCESSING LOGOUT...' : 'VERIFYING IDENTITY...';
     if (isCameraVisionMode && scanStage === 'detecting') {
       if (!cameraVisionFaceDetected) return 'SEARCHING FOR FACE...';
       if (!isFaceStraight) return 'PLEASE LOOK STRAIGHT TO THE CAMERA';
       if (livenessEnabled) {
-        if (!backgroundLivenessPassed) return livenessMessage.toUpperCase();
-        return 'LIVENESS VERIFIED • SCAN NOW';
+        return livenessMessage.toUpperCase();
       }
       return `FACE READY ${detectionPercent}%`;
     }
-    if (faceCountdown > 0 && touchlessEnabled) return `GET READY... ${faceCountdown}`;
+    if (faceCountdown > 0 && touchlessEnabled) return '';
     return 'LOOK AT THE CAMERA';
   })();
 
@@ -445,7 +454,7 @@ export default function FaceScanView({
       }
       return 'Hold steady for automatic capture';
     }
-    if (faceCountdown > 0) return livenessEnabled ? livenessMessage.toUpperCase() : 'Position your face';
+    if (faceCountdown > 0) return '';
     return livenessMessage;
   })();
 
@@ -455,21 +464,22 @@ export default function FaceScanView({
       <View style={styles.fullScreenDetectionOverlay} pointerEvents="none">
         {/* Bystander faces overlay removed for A7 Lite performance */}
         {(() => {
-          if (touchlessCountdownEnabled) return null; // Hide face box completely when 3s countdown feature is enabled for performance
+          if (touchlessCountdownEnabled) return null; // Hide face box completely when 3s countdown feature is enabled
           if (scanStage === 'countdown') return null; // Hide face box during countdown
-          const isFaceReady = livenessEnabled ? backgroundLivenessPassed : (detectionPercent === 100);
           return (
-            <AnimatedReanimated.View style={[styles.detectionFaceBox, (cameraVisionFaceDetected && isFaceReady) && styles.detectionFaceBoxActive, animatedFaceBoxStyle]} />
+            <AnimatedReanimated.View style={[styles.detectionFaceBox, animatedFaceBoxStyle]} />
           );
         })()}
         
-        <AnimatedReanimated.View style={[{ position: 'absolute' }, animatedInstructionCardStyle]}>
-          <View style={{ backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 4 }}>
-            <Text style={{ color: '#fff', fontSize: 13, fontWeight: 'bold', textAlign: 'center', letterSpacing: 0.5 }}>
-              {instructionText}
-            </Text>
-          </View>
-        </AnimatedReanimated.View>
+        {(!touchlessCountdownEnabled || livenessEnabled) && (
+          <AnimatedReanimated.View style={[{ position: 'absolute' }, animatedInstructionCardStyle]}>
+            <View style={{ backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 4 }}>
+              <Text style={{ color: '#fff', fontSize: 13, fontWeight: 'bold', textAlign: 'center', letterSpacing: 0.5 }}>
+                {instructionText}
+              </Text>
+            </View>
+          </AnimatedReanimated.View>
+        )}
 
         {showTelemetry && (
           <AnimatedReanimated.View style={[styles.detectionStatusCard, animatedStatusCardStyle]}>
@@ -544,10 +554,12 @@ export default function FaceScanView({
           <Text style={styles.countdownText}>{countdownValue}</Text>
         ) : null}
       </View>
-      {(!showDetectionOverlay || !livenessEnabled) && (
+      {(!touchlessCountdownEnabled || livenessEnabled) && (!showDetectionOverlay || !livenessEnabled) && (
         <Text style={isRight ? styles.scanInstructionTextRight : styles.scanInstructionText}>{instructionText}</Text>
       )}
-      <Text style={isRight ? styles.faceHintTextRight : styles.faceHintText}>{hintText}</Text>
+      {(!touchlessCountdownEnabled || livenessEnabled) && (
+        <Text style={isRight ? styles.faceHintTextRight : styles.faceHintText}>{hintText}</Text>
+      )}
     </View>
   );
 
