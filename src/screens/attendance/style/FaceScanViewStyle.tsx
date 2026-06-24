@@ -514,13 +514,11 @@ export const styles = StyleSheet.create({
     top: 20,
     width: 165,
     height: 200,
-    borderRadius: 0,
+    borderRadius: 5,
     borderWidth: 1.0,
     borderColor: '#ffffff',
     borderStyle: 'solid',
     backgroundColor: 'transparent',
-    zIndex: 2,
-    elevation: 2,
   },
   bystanderFaceBox: {
     position: 'absolute',
@@ -529,10 +527,7 @@ export const styles = StyleSheet.create({
     borderWidth: 2,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
-  detectionFaceBoxActive: {
-    borderColor: '#4ade80',
-    backgroundColor: 'transparent',
-  },
+
   detectionStatusCard: {
     position: 'absolute',
     top: 12,
