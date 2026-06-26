@@ -274,7 +274,7 @@ export function useAttendance() {
   const { isConnected, hasGoodInternet } = useNetworkStatus();
   const NETWORK_TIMEOUT_MS = 1500;
   const NETWORK_TOAST_COOLDOWN_MS = 15000;
-    const CAMERA_VISION_STABLE_FACE_FRAMES = 2;
+    const CAMERA_VISION_STABLE_FACE_FRAMES = 4;
   const CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY = 50;
   const CAMERA_VISION_MANUAL_MIN_READINESS_TO_VERIFY = 20;
   const CAMERA_VISION_GATE_LOG_COOLDOWN_MS = 1000;
@@ -1279,10 +1279,20 @@ export function useAttendance() {
       model_used: 'buffalo_sc (Local)'
     };
     if (isMatched) return ret;
+
+    let failHint = 'Look straight at the camera and try again.';
+    if (result.maxSimilarity < 0.30) {
+      failHint = 'Move closer to the camera.';
+    } else if (!agreementOk && result.maxSimilarity >= threshold) {
+      failHint = 'Look straight at the camera.';
+    } else if (result.maxSimilarity >= threshold * 0.85) {
+      failHint = 'Almost there! Hold still and try again.';
+    }
+
     return {
       ...ret,
-      message: 'Verification failed.',
-      hint: 'Please try again.',
+      message: 'Face Not Recognized',
+      hint: failHint,
     };
   }, []);
 
@@ -1648,7 +1658,7 @@ export function useAttendance() {
         faceProcessingRef.current = false; // reset so touchless can auto-retry
         modalContextRef.current = 'face_error';
         setScanStage('idle');
-        showModal('face_error', result?.message || 'Face not recognized', result?.hint || 'Ensure good lighting and try again.', 2000);
+        showModal('face_error', result?.message || 'Face Not Recognized', result?.hint || 'Ensure good lighting and try again.', 2000);
       }
     } catch (e: any) {
       identityStatusRef.current = 'failed';
