@@ -274,10 +274,10 @@ export function useAttendance() {
   const { isConnected, hasGoodInternet } = useNetworkStatus();
   const NETWORK_TIMEOUT_MS = 1500;
   const NETWORK_TOAST_COOLDOWN_MS = 15000;
-    const CAMERA_VISION_STABLE_FACE_FRAMES = 8;
-  const CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY = 65;
-  const CAMERA_VISION_MANUAL_MIN_READINESS_TO_VERIFY = 30;
-  const CAMERA_VISION_GATE_LOG_COOLDOWN_MS = 2000;
+    const CAMERA_VISION_STABLE_FACE_FRAMES = 2;
+  const CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY = 50;
+  const CAMERA_VISION_MANUAL_MIN_READINESS_TO_VERIFY = 20;
+  const CAMERA_VISION_GATE_LOG_COOLDOWN_MS = 1000;
 
   // Camera
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -606,6 +606,14 @@ export function useAttendance() {
       const parsed = raw ? JSON.parse(raw) : {};
       const session = parsed?.[userId];
       if (!session || typeof session !== 'object' || !session.clockInTime || !session.clockInDate) return null;
+      
+      const now = new Date();
+      const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      
+      if (session.clockInDate !== localDate) {
+        return null;
+      }
+      
       return { userId, username: String(session.username || ''), name: session.name ?? null, clockInTime: String(session.clockInTime), clockInDate: String(session.clockInDate) };
     } catch { return null; }
   }, []);
@@ -766,8 +774,14 @@ export function useAttendance() {
         embedding_val: user.face_embedding ? (typeof user.face_embedding === 'string' ? user.face_embedding.substring(0, 50) + '...' : 'object/array') : 'NULL'
       });
 
-      // FORCE SYNC LOCAL CACHE: If server says user is clocked out, we MUST clear local session,
-      // but ONLY if there are no pending offline attendance records for this user (which haven't synced yet).
+      // FORCE SYNC LOCAL CACHE: Only trust open_session if it is from today
+      const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+      const isSessionToday = user.open_session && user.open_session.date === todayStr;
+      if (!isSessionToday && user.open_session) {
+        console.log(`[QR] Server returned stale open_session from ${user.open_session.date}, ignoring (today=${todayStr})`);
+        user.open_session = null;
+      }
+
       const queue = await getOfflineAttendanceQueue().catch(() => []);
       const hasPendingOffline = queue.some(item => 
         item.userId === user.userId && 
@@ -781,7 +795,7 @@ export function useAttendance() {
           console.log(`[QR] Server says NO open session for ${user.username}. Clearing local cache.`);
           await clearStoredSession(user.userId);
         } else {
-          console.log(`[QR] Server says OPEN session found for ${user.username}. Saving to local cache.`);
+          console.log(`[QR] Server says OPEN session for TODAY for ${user.username}. Saving to local cache.`);
           await saveStoredSession({
             userId: user.userId,
             username: user.username,
@@ -1664,7 +1678,7 @@ export function useAttendance() {
 
     if (!offlineModeEnabled) {
       const minReadiness = touchlessEnabled
-        ? (touchlessCountdownEnabled ? 1 : CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY)
+        ? (touchlessCountdownEnabled ? 0 : CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY)
         : CAMERA_VISION_MANUAL_MIN_READINESS_TO_VERIFY;
       if (!cameraVisionFaceDetected || cameraVisionReadiness < minReadiness) {
         setScanStage('detecting');
@@ -1718,7 +1732,6 @@ export function useAttendance() {
   const onTouchlessFaceLost = Worklets.createRunOnJS(() => {
     if (!touchlessEnabledRef.current || faceProcessingRef.current || isVerifying) return;
     cameraVisionAutoTriggeredRef.current = false;
-    setLivenessMessage('Face the camera directly');
   });
 
   const onCameraVisionDetectionProgress = Worklets.createRunOnJS((
@@ -2046,7 +2059,13 @@ export function useAttendance() {
               }
 
               if (hasPassedPassiveLiveness.value) {
-                 if (workletPhase.value === 0 && sharedLivenessEnabled.value) updateLivenessMessage('Liveness passed! Ready to verify.');
+                 if (workletPhase.value === 0 && sharedLivenessEnabled.value) {
+                    if (sharedTouchlessEnabled.value) {
+                       updateLivenessMessage('VERIFIED!');
+                    } else {
+                       updateLivenessMessage('VERIFIED! SCAN NOW');
+                    }
+                 }
               }
             } else {
                if (workletPhase.value === 0 && sharedLivenessEnabled.value) updateLivenessMessage('Face the camera directly');
@@ -2105,7 +2124,8 @@ export function useAttendance() {
         if (userPendingItems.length > 0) {
           userPendingItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
           const latestAction = userPendingItems[0].action;
-          if (latestAction === 'clock_in') {
+          const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+          if (latestAction === 'clock_in' && userPendingItems[0].date === today) {
             localSession = {
               userId: cachedUser.userId,
               username: cachedUser.username,
@@ -2188,14 +2208,16 @@ export function useAttendance() {
            if (userPendingItems.length > 0) {
              userPendingItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
              const latestAction = userPendingItems[0].action;
-             if (latestAction === 'clock_in') {
+             const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+             if (latestAction === 'clock_in' && userPendingItems[0].date === today) {
                existingSession = {
                  clockInTime: userPendingItems[0].time,
                  clockInDate: userPendingItems[0].date
                };
              }
            } else {
-             if (!offlineModeEnabled && resolved.open_session) {
+             const bgToday = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+             if (!offlineModeEnabled && resolved.open_session && resolved.open_session.date === bgToday) {
                existingSession = {
                  clockInTime: resolved.open_session.timein,
                  clockInDate: resolved.open_session.date,
@@ -2261,14 +2283,16 @@ export function useAttendance() {
       if (userPendingItems.length > 0) {
         userPendingItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         const latestAction = userPendingItems[0].action;
-        if (latestAction === 'clock_in') {
+        const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+        if (latestAction === 'clock_in' && userPendingItems[0].date === today) {
           existingSession = {
             clockInTime: userPendingItems[0].time,
             clockInDate: userPendingItems[0].date
           };
         }
       } else {
-        if (!offlineModeEnabled && resolved.open_session) {
+        const srvToday = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+        if (!offlineModeEnabled && resolved.open_session && resolved.open_session.date === srvToday) {
           existingSession = {
             clockInTime: resolved.open_session.timein,
             clockInDate: resolved.open_session.date,
@@ -2319,7 +2343,13 @@ export function useAttendance() {
       qrProcessingRef.current = false;
       setSelectedUser(null);
       lastScanRef.current = { data: lastScanRef.current.data, ts: Date.now() + 3500 };
-      showModal('qr_error', 'QR code not recognized', 'Make sure you are using a valid employee QR.', 2000);
+      
+      const errMsg = e?.message || '';
+      if (errMsg.includes('QR Code is not set')) {
+        showModal('qr_error', 'QR Code Not Set', 'Face scanning is unavailable for this intern because no QR code is set.', 3000);
+      } else {
+        showModal('qr_error', 'QR code not recognized', 'Make sure you are using a valid employee QR.', 2000);
+      }
     } finally {
       setIsQrLoading(false);
     }
@@ -2409,10 +2439,22 @@ export function useAttendance() {
     if (!countdownActive || !touchlessEnabled || !qrVerified) return;
     if (showResultModal || modalVisibleRef.current) return;
     if (faceCountdown > 0 || isVerifying || faceProcessingRef.current) return;
+
+    if (livenessEnabled && !backgroundLivenessPassed) {
+      return; // Wait at 0 until they blink
+    }
+
     setCountdownActive(false);
     workletPhase.value = 0; // Ungate the camera vision!
-    setScanStage('detecting'); // Let normal auto-capture take over instantly
-  }, [countdownActive, faceCountdown, isVerifying, qrVerified, showResultModal, touchlessEnabled]);
+    setScanStage('detecting'); // Let UI transition before capturing
+    
+    cameraVisionAutoTriggeredRef.current = true;
+    setTimeout(() => {
+      if (!selectedUserRef.current || modalVisibleRef.current) return; // Prevent ghost capture if flow was reset
+      setScanStage('capturing');
+      handleAttendance();
+    }, 300);
+  }, [countdownActive, faceCountdown, isVerifying, qrVerified, showResultModal, touchlessEnabled, handleAttendance, livenessEnabled, backgroundLivenessPassed]);
 
   // Removed broken useEffect that forced scanStage to detecting
 
@@ -2422,8 +2464,10 @@ export function useAttendance() {
     if (isVerifying || faceProcessingRef.current || showResultModal || modalVisibleRef.current) return;
     if (scanStage === 'countdown') return; // Let worklet run for liveness, but don't auto-capture!
 
+    if (touchlessCountdownEnabled) return; // Capture is handled exclusively by the countdown useEffect when enabled
+
     setScanStage('detecting');
-    const autoReadinessThreshold = touchlessCountdownEnabled ? 1 : CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY;
+    const autoReadinessThreshold = CAMERA_VISION_TOUCHLESS_MIN_READINESS_TO_VERIFY;
 
     if (
       cameraVisionFaceDetected &&
@@ -2435,8 +2479,12 @@ export function useAttendance() {
       }
 
       cameraVisionAutoTriggeredRef.current = true;
-      setScanStage('capturing');
-      handleAttendance();
+      // Wait 300ms to allow the face box fade out animation to finish before unmounting the overlay
+      setTimeout(() => {
+        if (!selectedUserRef.current || modalVisibleRef.current) return; // Prevent ghost capture if flow was reset
+        setScanStage('capturing');
+        handleAttendance();
+      }, 300);
       return;
     }
 
@@ -2456,6 +2504,7 @@ export function useAttendance() {
     qrVerified,
     showResultModal,
     touchlessEnabled,
+    touchlessCountdownEnabled,
   ]);
 
   useEffect(() => {
