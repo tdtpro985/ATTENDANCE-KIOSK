@@ -126,10 +126,10 @@ if ((defined('KIOSK_MODE') && KIOSK_MODE === 'intern') || strpos($logId ?? '', '
     $todayDate = date('Y-m-d');
     $attStmt = $db->prepare("SELECT id, entry_date, time_in, time_out 
                              FROM dtr_entries 
-                             WHERE intern_id = ? AND time_out IS NULL AND is_archived = 0 
+                             WHERE intern_id = ? AND entry_date = ? AND time_out IS NULL AND is_archived = 0 
                              ORDER BY id DESC LIMIT 1");
     if ($attStmt !== false) {
-        $attStmt->bind_param('i', $internId);
+        $attStmt->bind_param('is', $row['id'], $todayDate);
         if ($attStmt->execute()) {
             $attRow = $attStmt->get_result()->fetch_assoc();
             if ($attRow) {
@@ -282,7 +282,7 @@ if ($resolvedLogId) {
 
         // Check for ANY open attendance session
         if ($empId) {
-            $attQuery = "rest/v1/attendance?emp_id=eq." . urlencode($empId) . "&timeout=is.null&order=att_id.desc&limit=1&select=att_id,timein,date";
+            $attQuery = "rest/v1/attendance?emp_id=eq." . urlencode($empId) . "&date=eq." . date('Y-m-d') . "&timeout=is.null&order=att_id.desc&limit=1&select=att_id,timein,date";
             [$sAtt, $attRows, $eAtt] = supabase_request('GET', $attQuery);
 
             if (!$eAtt && is_array($attRows) && count($attRows) > 0) {
