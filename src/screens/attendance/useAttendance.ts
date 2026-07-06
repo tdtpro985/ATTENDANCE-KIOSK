@@ -2163,22 +2163,18 @@ export function useAttendance() {
           ? !!cachedUser.face_embedding 
           : true; // Face++ sends the live photo to backend, backend fetches stored face
 
-        // If we are missing the embedding locally, we CANNOT auto-trigger handleAttendance yet.
-        // We must wait for the background sync to finish fetching it!
-        const shouldWaitSync = currentSettings.touchless && true && !hasNeededFaceData;
+        // If we are missing the embedding locally OR we are online and need to verify the true session state,
+        // we CANNOT auto-trigger handleAttendance yet. We must wait for the background sync to finish!
+        const shouldWaitSync = currentSettings.touchless && (!offlineModeEnabled || !hasNeededFaceData);
+        const qrTransitionFired = { value: false };
+        const bgSyncFinished = { value: false };
 
-        // Show the success checkmark for 600ms before transitioning
+        // Show the success checkmark for 300ms before transitioning
         setTimeout(async () => {
+          qrTransitionFired.value = true;
           setQrSuccessLocal(false);
           workletPhase.value = 0; // Keep worklet active during countdown for liveness
           setQrVerified(true);
-          
-          const isClockOut = localSession ? true : false;
-          
-          // Automatic clock-out if touchless is enabled
-          if (isClockOut && currentSettings.touchless) {
-             setAttendanceAction('clock_out');
-          }
           
           setFaceCountdown(0);
           countdownRef.current = 0;
@@ -2194,12 +2190,12 @@ export function useAttendance() {
           livenessConsecutiveFrames.value = 0;
           setLivenessMessage('Face the camera directly');
           
-          if (currentSettings.touchless && true) {
-            if (!shouldWaitSync) {
+          if (currentSettings.touchless) {
+            if (!shouldWaitSync || bgSyncFinished.value) {
               setScanStage(isTouchlessCountdownEnabledRef.current ? 'countdown' : 'detecting');
             } else {
               setScanStage('idle');
-              console.log('[QR] Waiting for background sync to fetch face_embedding...');
+              console.log('[QR] 300ms elapsed. Waiting for background sync to fetch true session state/face data...');
             }
           } else {
             setScanStage('idle');
@@ -2263,14 +2259,17 @@ export function useAttendance() {
            setClockInTime(existingSession?.clockInTime || '');
            setAttendanceAction(existingSession ? 'clock_out' : 'clock_in');
 
-           // If touchless is enabled and it's a clock-in, we trigger handleAttendance NOW 
-           // because the 600ms timeout above might have already fired with stale data
-           // Also trigger if we were waiting for the sync to finish for clock_out
-           const isClockOutNow = existingSession ? true : false;
+           bgSyncFinished.value = true;
+
+           // If touchless is enabled, we need to unlock the camera.
            if (currentSettings.touchless) {
-              if ((!isClockOutNow) || (isClockOutNow && shouldWaitSync)) {
-                console.log('[QR] Background sync finished. Relying on useEffect for touchless transition.');
-                // Removed explicit await handleAttendance() to avoid stale state issues.
+              if (qrTransitionFired.value && shouldWaitSync) {
+                // The 300ms timeout already fired and parked the camera in 'idle' waiting for us.
+                // Now that we have the exact server truth, we can safely unlock it!
+                console.log('[QR] Background sync finished. Server verified state is:', existingSession ? 'clock_out' : 'clock_in', '-> Unlocking camera.');
+                setScanStage(isTouchlessCountdownEnabledRef.current ? 'countdown' : 'detecting');
+              } else {
+                console.log('[QR] Background sync finished in under 300ms. Timeout will handle unlocking.');
               }
            }
         }).catch(e => console.log('[QR] Background sync failed (Safe to ignore if offline)', e));

@@ -119,7 +119,7 @@ function markDownloadSucceeded(url: string): void {
 
 function clearFailedDownloads(): void {
   try {
-    (mmkv as any).delete('failed_profile_downloads_v1');
+    mmkv.remove('failed_profile_downloads_v1');
   } catch {}
 }
 
@@ -137,6 +137,17 @@ export async function cacheProfilePictureOnDisk(userId: string, remoteUrl: strin
     const fileExtension = remoteUrl.split('.').pop()?.split('?')[0] || 'jpg';
     const localFilename = `profile_${userId}.${fileExtension}`;
     const file = new File(Paths.cache, localFilename);
+
+    try {
+      if (file.exists) {
+        await file.delete();
+      } else {
+        // Fallback: forcefully try to delete anyway if .exists is caching stale state
+        await file.delete();
+      }
+    } catch (e) {
+      // Ignore deletion errors, file probably doesn't exist
+    }
 
     // Download standard 500x500px resolution profile photo directly to device cache
     const downloadedFile = await File.downloadFileAsync(remoteUrl, file);
@@ -245,7 +256,7 @@ export async function saveOfflineUserCache(users: CachedOfflineUser[]): Promise<
   const keys = mmkv.getAllKeys();
   const indexKeys = keys.filter(k => k.startsWith('user_by_id:') || k.startsWith('user_by_emp_id:') || k.startsWith('user_by_qr:'));
   for (const key of indexKeys) {
-    (mmkv as any).delete(key);
+    mmkv.remove(key);
   }
 
   for (const user of users) {
@@ -263,7 +274,7 @@ export async function clearOfflineUserCache(): Promise<void> {
   const keys = mmkv.getAllKeys();
   const indexKeys = keys.filter(k => k.startsWith('user_by_id:') || k.startsWith('user_by_emp_id:') || k.startsWith('user_by_qr:'));
   for (const key of indexKeys) {
-    (mmkv as any).delete(key);
+    mmkv.remove(key);
   }
   clearFailedDownloads();
 }
@@ -319,14 +330,14 @@ export async function updateOfflineUserCacheFromEmployees(
           try {
             const user = JSON.parse(userRaw) as CachedOfflineUser;
             if (user.qrCode) {
-              (mmkv as any).delete(`user_by_qr:${user.qrCode}`);
+              mmkv.remove(`user_by_qr:${user.qrCode}`);
             }
             if (user.empId) {
-              (mmkv as any).delete(`user_by_emp_id:${user.empId}`);
+              mmkv.remove(`user_by_emp_id:${user.empId}`);
             }
           } catch {}
         }
-        (mmkv as any).delete(key);
+        mmkv.remove(key);
         await deleteCachedProfilePicture(userId);
       }
     }
@@ -390,7 +401,7 @@ export async function refreshOfflineUserCache(): Promise<CachedOfflineUser[]> {
     return users;
   } catch (error) {
     console.error('refreshOfflineUserCache error:', error);
-    if (responseText) {
+    if (responseText && error instanceof SyntaxError) {
       const sanitizedResponse = responseText.replace(/"(face|profile_picture|image)":"[^"]{100,}"/g, '"$1":"[face_data]"');
       console.error('Raw response that failed to parse:', sanitizedResponse);
     }
