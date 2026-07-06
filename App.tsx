@@ -20,28 +20,33 @@ export default function App() {
   const isSmallScreen = windowWidth < 380 || windowHeight < 550;
   const isShortScreen = windowHeight < 550;
 
-  const cardPaddingHorizontal = isTablet ? 56 : (isSmallScreen ? 24 : 32);
-  const cardPaddingVertical = isTablet ? 72 : (isShortScreen ? 25 : (isSmallScreen ? 32 : 48));
-  const brandBlockMargin = isTablet ? 56 : (isShortScreen ? 20 : (isSmallScreen ? 24 : 32));
+  const isLandscape = windowWidth > windowHeight;
+  const isSmallTabletLandscape = isLandscape && windowWidth >= 700 && windowWidth <= 1000;
+
+  const cardPaddingHorizontal = isLandscape ? (isSmallTabletLandscape ? 48 : (isTablet ? 80 : 32)) : (isTablet ? 56 : (isSmallScreen ? 24 : 32));
+  const cardPaddingVertical = isLandscape ? (isSmallTabletLandscape ? 30 : (isTablet ? 60 : 20)) : (isTablet ? 56 : (isShortScreen ? 25 : (isSmallScreen ? 32 : 48)));
+  const brandBlockMargin = isLandscape ? (isSmallTabletLandscape ? 24 : (isTablet ? 40 : 16)) : (isTablet ? 40 : (isShortScreen ? 20 : (isSmallScreen ? 24 : 32)));
   
   const maxAvailableLogoWidth = windowWidth - (cardPaddingHorizontal * 2) - (isTablet ? 96 : 48);
-  const targetLogoWidth = isTablet ? 420 : (isSmallScreen ? 220 : 280);
+  const targetLogoWidth = isLandscape ? (isSmallTabletLandscape ? 260 : (isTablet ? 450 : 180)) : (isTablet ? 380 : (isSmallScreen ? 220 : 280));
   const logoWidth = Math.min(targetLogoWidth, maxAvailableLogoWidth);
   const logoHeight = logoWidth * (isTablet ? 130 / 420 : 85 / 280);
   
-  const logoMarginBottom = isTablet ? 8 : (isShortScreen ? 4 : 8);
-  const brandSubcopyFontSize = isTablet ? 15 : (isSmallScreen ? 11 : 12);
+  const logoMarginBottom = isLandscape ? 4 : (isTablet ? 8 : (isShortScreen ? 4 : 8));
+  const brandSubcopyFontSize = isLandscape ? (isSmallTabletLandscape ? 14 : (isTablet ? 18 : 11)) : (isTablet ? 15 : (isSmallScreen ? 11 : 12));
   
-  const buttonGap = isTablet ? 20 : (isShortScreen ? 12 : (isSmallScreen ? 12 : 16));
-  const scannerBtnHeight = isTablet ? 96 : (isShortScreen ? 56 : (isSmallScreen ? 60 : 72));
-  const directoryBtnHeight = isTablet ? 80 : (isShortScreen ? 48 : (isSmallScreen ? 54 : 64));
+  const buttonGap = isLandscape ? (isSmallTabletLandscape ? 16 : (isTablet ? 20 : 10)) : (isTablet ? 20 : (isShortScreen ? 12 : (isSmallScreen ? 12 : 16)));
+  const scannerBtnHeight = isLandscape ? (isSmallTabletLandscape ? 70 : (isTablet ? 96 : 52)) : (isTablet ? 84 : (isShortScreen ? 56 : (isSmallScreen ? 60 : 72)));
+  const directoryBtnHeight = isLandscape ? (isSmallTabletLandscape ? 56 : (isTablet ? 76 : 44)) : (isTablet ? 68 : (isShortScreen ? 48 : (isSmallScreen ? 54 : 64)));
   
-  const scannerBtnFontSize = isTablet ? 20 : (isShortScreen ? 14 : (isSmallScreen ? 14 : 16));
-  const directoryBtnFontSize = isTablet ? 17 : (isShortScreen ? 13 : (isSmallScreen ? 13 : 14));
+  const scannerBtnFontSize = isLandscape ? (isTablet ? 22 : 14) : (isTablet ? 20 : (isShortScreen ? 14 : (isSmallScreen ? 14 : 16)));
+  const directoryBtnFontSize = isLandscape ? (isTablet ? 18 : 12) : (isTablet ? 17 : (isShortScreen ? 13 : (isSmallScreen ? 13 : 14)));
   
-  const settingsIconSize = isTablet ? 20 : (isShortScreen ? 14 : (isSmallScreen ? 14 : 16));
-  const settingsTextSize = isTablet ? 14 : (isShortScreen ? 11 : (isSmallScreen ? 11 : 12));
-  const settingsMarginTop = isShortScreen ? 4 : 8;
+  const settingsIconSize = isLandscape ? (isTablet ? 22 : 14) : (isTablet ? 20 : (isShortScreen ? 14 : (isSmallScreen ? 14 : 16)));
+  const settingsTextSize = isLandscape ? (isTablet ? 15 : 10) : (isTablet ? 14 : (isShortScreen ? 11 : (isSmallScreen ? 11 : 12)));
+  const settingsMarginTop = isLandscape ? 4 : (isShortScreen ? 4 : 8);
+
+  const cardMaxWidth = isLandscape ? (isTablet ? 800 : 400) : (isTablet ? 650 : (isShortScreen ? 460 : 540));
 
   useAutoSync();
 
@@ -166,7 +171,7 @@ export default function App() {
               backgroundColor: theme === 'light' ? '#FFFFFF' : '#242423', 
               paddingHorizontal: cardPaddingHorizontal,
               paddingVertical: cardPaddingVertical,
-              maxWidth: isTablet ? 650 : (isShortScreen ? 460 : 540),
+              maxWidth: cardMaxWidth,
               shadowColor: '#000',
               shadowOpacity: 0.12,
               shadowRadius: 16,

@@ -74,7 +74,11 @@ module.exports = function withManualOnnxLinking(config) {
 
       // 2. Copy Custom Native Kotlin Modules
       const srcNativeAndroidDir = path.join(projectRoot, 'src', 'native', 'android');
-      const destNativeAndroidDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'java', 'com', 'ams', 'attendanceapp');
+      
+      // Dynamically get the package name from app.json so it doesn't break when renamed
+      const packageName = config.android.package || 'com.kth.attendanceapp';
+      const packagePathParts = packageName.split('.');
+      const destNativeAndroidDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'java', ...packagePathParts);
 
       if (fs.existsSync(srcNativeAndroidDir)) {
         if (!fs.existsSync(destNativeAndroidDir)) {

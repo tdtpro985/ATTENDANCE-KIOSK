@@ -1,4 +1,4 @@
-package com.ams.attendanceapp
+package com.kth.attendanceapp
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
