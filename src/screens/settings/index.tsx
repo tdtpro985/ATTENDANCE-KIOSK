@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState, useRef } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View, /* Modal, */ Animated, useWindowDimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BACKEND_URL } from '../../config/backend';
+import { BACKEND_URL, CONNECTION_TYPE } from '../../config/backend';
 import { useTheme, Colors } from '../../config/theme';
 
 import { TouchlessModeFeature } from './features/TouchlessModeFeature';
@@ -517,7 +517,7 @@ export default function Settings({ onBack }: Props) {
               />
               <View>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
-                  {kioskMode === 'intern' ? 'MySQL' : 'Supabase'}
+                  {kioskMode === 'intern' ? `MySQL (${CONNECTION_TYPE})` : 'Supabase'}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 2 }}>
                   Connected to{' '}
