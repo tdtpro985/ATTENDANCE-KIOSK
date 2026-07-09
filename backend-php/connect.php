@@ -29,8 +29,11 @@ function loadEnv($dir)
                 }
 
                 if (!empty($key)) {
-                    putenv("$key=$value");
-                    $_ENV[$key] = $value;
+                    // ONLY set the variable if it hasn't already been set by Docker or the system environment!
+                    if (getenv($key) === false) {
+                        putenv("$key=$value");
+                        $_ENV[$key] = $value;
+                    }
                 }
             }
         }

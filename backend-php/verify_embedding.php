@@ -23,7 +23,8 @@ $userId = isset($input['log_id']) ? trim((string) $input['log_id']) : null;
 $liveEmbeddingRaw = $input['live_embedding'] ?? null;
 $liveImageB64 = $input['live_image_b64'] ?? null;
 $engine = isset($input['engine']) ? trim((string) $input['engine']) : '';
-$faceServerUrl = getenv('FACE_SERVER_URL') ?: 'http://localhost:5001';
+$faceServerUrl = getenv('FACE_SERVER_URL') ?: 'http://127.0.0.1:5001';
+$faceServerUrl = str_replace('localhost', '127.0.0.1', $faceServerUrl); // Force IPv4 for Windows curl compatibility
 
 if ($userId === 'warmup') {
     if ($liveImageB64) {
