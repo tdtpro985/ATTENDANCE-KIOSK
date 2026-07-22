@@ -131,45 +131,35 @@ if (!is_array($storedEmbedding)) {
 $isMultiAngle = count($storedEmbedding) > 0 && is_array($storedEmbedding[0]);
 $angleEmbeddings = $isMultiAngle ? $storedEmbedding : [$storedEmbedding];
 
+// Only the frontal pose (index 0 — "Look Straight", the same pose used for the
+// profile picture) is used for matching. The other captured angles (far/left/
+// right/up) are intentionally off-axis for liveness/enrollment purposes and are
+// not comparable to a frontal live capture, so they are not used as a match gate.
+$frontalEmbedding = $angleEmbeddings[0] ?? null;
+
 $maxSimilarity = -1;
 $bestAngleIndex = -1;
 $perAngleScores = [];
 
-foreach ($angleEmbeddings as $idx => $angleEmb) {
-    if (!is_array($angleEmb) || count($angleEmb) !== count($liveEmbedding)) {
-        $perAngleScores[] = -1;
-        continue;
-    }
-
+if (is_array($frontalEmbedding) && count($frontalEmbedding) === count($liveEmbedding)) {
     $dot = 0;
     $normA = 0;
     $normB = 0;
     for ($i = 0; $i < count($liveEmbedding); $i++) {
-        $dot += $liveEmbedding[$i] * $angleEmb[$i];
+        $dot += $liveEmbedding[$i] * $frontalEmbedding[$i];
         $normA += $liveEmbedding[$i] * $liveEmbedding[$i];
-        $normB += $angleEmb[$i] * $angleEmb[$i];
+        $normB += $frontalEmbedding[$i] * $frontalEmbedding[$i];
     }
 
     $denom = sqrt($normA) * sqrt($normB);
-    $sim = $denom === 0.0 ? 0 : $dot / $denom;
-    $perAngleScores[] = $sim;
-
-    if ($sim > $maxSimilarity) {
-        $maxSimilarity = $sim;
-        $bestAngleIndex = $idx;
-    }
+    $maxSimilarity = $denom === 0.0 ? 0 : $dot / $denom;
+    $bestAngleIndex = 0;
 }
+$perAngleScores[] = $maxSimilarity;
 
 $matchThreshold = 0.52;
-$subThreshold = 0.45;
 
-// Require at least 3 matching angles for 5 profiles, 2 for 3-4 profiles, and 1 for <3 profiles
-$agreeingAngles = count(array_filter($perAngleScores, fn($s) => $s >= $subThreshold));
-$angleCount = count($angleEmbeddings);
-$minAgrees = $angleCount >= 5 ? 3 : ($angleCount >= 3 ? 2 : 1);
-$agreementOk = $agreeingAngles >= $minAgrees;
-
-$isMatch = $maxSimilarity >= $matchThreshold && $agreementOk;
+$isMatch = $maxSimilarity >= $matchThreshold;
 
 $message = null;
 $hint = null;
@@ -189,9 +179,9 @@ echo json_encode([
     'message' => $message,
     'hint' => $hint,
     'decision' => $isMatch ? 'PASS' : 'FAIL',
-    'angle_count' => count($angleEmbeddings),
+    'angle_count' => 1,
     'best_angle_index' => $bestAngleIndex,
     'per_angle_scores' => $perAngleScores,
-    'agreeing_angles' => $agreeingAngles,
+    'agreeing_angles' => $isMatch ? 1 : 0,
     'model_used' => $isServerMode ? $targetModel : 'local_buffalo_sc'
 ]);

@@ -1253,18 +1253,12 @@ export function useAttendance() {
     }
     
     const threshold = MODEL_CONFIG.matchThreshold;
-    const subThreshold = MODEL_CONFIG.subThreshold;
 
-    // Require at least 3 matching angles for 5 profiles, 2 for 3-4 profiles, and 1 for <3 profiles
-    const agreeingAngles = result.perAngleScores.filter(s => s >= subThreshold).length;
-    const minAgrees = result.angleCount >= 5 ? 3 : (result.angleCount >= 3 ? 2 : 1);
-    const agreementOk = agreeingAngles >= minAgrees;
+    // Match on the frontal/profile-picture embedding only (compareMultiAngleEmbeddings
+    // already narrows to angle index 0) — no cross-angle agreement voting.
+    const isMatched = isMatch(result.maxSimilarity, threshold);
 
-    const isMatched = isMatch(result.maxSimilarity, threshold) && agreementOk;
-    
-    console.log(`[Face Verification] Angles: ${result.angleCount}, Per-angle scores: [${result.perAngleScores.map(s => s.toFixed(4)).join(', ')}]`);
-    console.log(`[Face Verification] Best Cosine Similarity: ${result.maxSimilarity.toFixed(4)} (${(result.maxSimilarity * 100).toFixed(2)}%) from angle ${result.bestAngleIndex}`);
-    console.log(`[Face Verification] Agreeing angles (≥${subThreshold}): ${agreeingAngles} / ${result.angleCount} (Required: ${minAgrees})`);
+    console.log(`[Face Verification] Best Cosine Similarity: ${result.maxSimilarity.toFixed(4)} (${(result.maxSimilarity * 100).toFixed(2)}%)`);
     console.log(`[Face Verification] Match Threshold Required: ${threshold.toFixed(2)} (${(threshold * 100).toFixed(0)}%)`);
     console.log(`[Face Verification] Match Verdict: ${isMatched ? '✅ [PASS]' : '❌ [FAIL]'}`);
     console.log('[Face Verification] === LOCAL VERIFICATION END ===');
@@ -1275,7 +1269,7 @@ export function useAttendance() {
       similarity: result.maxSimilarity,
       angle_count: result.angleCount,
       best_angle_index: result.bestAngleIndex,
-      agreeing_angles: agreeingAngles,
+      agreeing_angles: isMatched ? 1 : 0,
       model_used: 'buffalo_sc (Local)'
     };
     if (isMatched) return ret;
@@ -1283,8 +1277,6 @@ export function useAttendance() {
     let failHint = 'Look straight at the camera and try again.';
     if (result.maxSimilarity < 0.30) {
       failHint = 'Move closer to the camera.';
-    } else if (!agreementOk && result.maxSimilarity >= threshold) {
-      failHint = 'Look straight at the camera.';
     } else if (result.maxSimilarity >= threshold * 0.85) {
       failHint = 'Almost there! Hold still and try again.';
     }
@@ -1564,10 +1556,7 @@ export function useAttendance() {
               }
               
               const threshold = MODEL_CONFIG.matchThreshold;
-              const subThreshold = MODEL_CONFIG.subThreshold;
-              const agreeingAngles = r.perAngleScores.filter((s: number) => s >= subThreshold).length;
-              const minAgrees = r.angleCount >= 5 ? 3 : (r.angleCount >= 3 ? 2 : 1);
-              const isMatched = r.maxSimilarity >= threshold && agreeingAngles >= minAgrees;
+              const isMatched = r.maxSimilarity >= threshold;
 
               if (isMatched && attempt === 1) {
                 console.log(`[CameraVision] Shot 1 is a clear pass (${(r.maxSimilarity * 100).toFixed(1)}% >= ${(threshold * 100).toFixed(0)}%), skipping shot 2.`);
@@ -1634,12 +1623,7 @@ export function useAttendance() {
         console.log(` Score:         N/A`);
       }
       if (result?.angle_count != null) {
-        const minAgrees = result.angle_count >= 5 ? 3 : (result.angle_count >= 3 ? 2 : 1);
-        console.log(` Angles:        ${result.angle_count} profiles (Best angle: #${result.best_angle_index})`);
-        console.log(` Agreement:     ${result.agreeing_angles ?? 0} matching angles (At least ${minAgrees} required)`);
-        if (!isSuccess && scoreVal >= MODEL_CONFIG.matchThreshold) {
-          console.log(` Reason:        Failed multi-angle alignment check (less than ${minAgrees} angles matched)`);
-        }
+        console.log(` Angles:        ${result.angle_count} profile(s) (Best angle: #${result.best_angle_index})`);
       }
       console.log('--------------------------------------------------');
       console.log(' Performance Details:');

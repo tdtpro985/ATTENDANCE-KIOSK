@@ -25,46 +25,30 @@ export function isMatch(similarity: number, threshold?: number): boolean {
 }
 
 /**
- * Compare a live embedding against stored embeddings (single or multi-angle).
- * For multi-angle: compares against each angle individually and returns the MAX similarity.
- * This avoids the accuracy loss from averaging embeddings during registration.
+ * Compare a live (frontal) embedding against the stored profile embedding.
+ * Stored embeddings may be a single vector or a multi-angle set captured during
+ * registration ([Frontal, Frontal-Far, Left, Right, Up]); only index 0 (Frontal —
+ * the same pose used for the profile picture) is comparable to a frontal live
+ * capture, so that's the only one used for the match decision.
  */
 export function compareMultiAngleEmbeddings(
   liveEmbedding: number[],
   storedEmbedding: number[] | number[][]
 ): { maxSimilarity: number; bestAngleIndex: number; perAngleScores: number[]; angleCount: number } {
-  let embeddingsList: number[][];
+  const frontalEmb: number[] | undefined =
+    storedEmbedding.length > 0 && Array.isArray(storedEmbedding[0])
+      ? (storedEmbedding as number[][])[0]
+      : (storedEmbedding as number[]);
 
-  if (storedEmbedding.length > 0 && Array.isArray(storedEmbedding[0])) {
-    embeddingsList = storedEmbedding as number[][];
-  } else {
-    embeddingsList = [storedEmbedding as number[]];
+  if (!Array.isArray(frontalEmb) || frontalEmb.length < 64 || frontalEmb.length !== liveEmbedding.length) {
+    return { maxSimilarity: -1, bestAngleIndex: -1, perAngleScores: [-1], angleCount: 1 };
   }
 
-  let maxSimilarity = -1;
-  let bestAngleIndex = -1;
-  const perAngleScores: number[] = [];
-
-  for (let i = 0; i < embeddingsList.length; i++) {
-    const angleEmb = embeddingsList[i];
-    if (!Array.isArray(angleEmb) || angleEmb.length < 64 || angleEmb.length !== liveEmbedding.length) {
-      perAngleScores.push(-1);
-      continue;
-    }
-
-    const sim = compareEmbeddings(liveEmbedding, angleEmb);
-    perAngleScores.push(sim);
-
-    if (Number.isFinite(sim) && sim > maxSimilarity) {
-      maxSimilarity = sim;
-      bestAngleIndex = i;
-    }
-  }
-
+  const sim = compareEmbeddings(liveEmbedding, frontalEmb);
   return {
-    maxSimilarity,
-    bestAngleIndex,
-    perAngleScores,
-    angleCount: embeddingsList.length,
+    maxSimilarity: sim,
+    bestAngleIndex: 0,
+    perAngleScores: [sim],
+    angleCount: 1,
   };
 }
