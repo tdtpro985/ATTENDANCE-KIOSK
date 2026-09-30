@@ -162,177 +162,29 @@ if ((defined('KIOSK_MODE') && KIOSK_MODE === 'intern') || strpos($logId ?? '', '
     exit;
 }
 
-if ($logId) {
-    [$status, $data, $err] = supabase_request(
-        'GET',
-        "rest/v1/accounts?log_id=eq." . urlencode($logId) . "&select=log_id,username"
-    );
-} else {
-    [$status, $data, $err] = supabase_request(
-        'GET',
-        "rest/v1/accounts?username=eq." . urlencode($username) . "&select=log_id,username"
-    );
+// Employee path: resolve via hris-system's kiosk API instead of Supabase.
+$employeeNo = $logId ?: $username;
 
-    // Fall back to a case-insensitive scan if the exact username casing doesn't match.
-    if ((!$err && (!is_array($data) || count($data) === 0)) || $status === 404) {
-        [$allStatus, $allRows, $allErr] = supabase_request(
-            'GET',
-            "rest/v1/accounts?select=log_id,username&limit=1000"
-        );
+[$hStatus, $hData, $hErr] = hris_kiosk_request(
+    'GET',
+    '/api/kiosk/resolve?employeeNo=' . urlencode((string) $employeeNo)
+);
 
-        if (!$allErr && is_array($allRows) && count($allRows) > 0) {
-            $match = null;
-            $needle = strtolower(trim((string) $username));
-            foreach ($allRows as $row) {
-                $rowUsername = strtolower(trim((string) ($row['username'] ?? '')));
-                if ($needle !== '' && $rowUsername === $needle) {
-                    $match = $row;
-                    break;
-                }
-            }
-
-            if ($match) {
-                $status = 200;
-                $data = [$match];
-                $err = null;
-            }
-        }
-    }
-}
-
-if ($err) {
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Database error', 'detail' => $err]);
+if ($hErr) {
+    http_response_code(502);
+    echo json_encode(['ok' => false, 'message' => 'Failed to reach HRIS server: ' . $hErr]);
     exit;
 }
 
-if ($status !== 200 || !is_array($data) || count($data) === 0) {
-    http_response_code(404);
-    echo json_encode(['ok' => false, 'message' => 'Account not found']);
+if ($hStatus !== 200 || !is_array($hData) || !($hData['ok'] ?? false)) {
+    http_response_code($hStatus ?: 404);
+    echo json_encode(['ok' => false, 'message' => $hData['message'] ?? 'Employee not found']);
     exit;
 }
 
-$resolvedLogId = $data[0]['log_id'] ?? null;
-$resolvedUsername = $data[0]['username'] ?? $username;
-
-function normalize_value($value)
-{
-    if ($value === null || $value === false || $value === '') {
-        return null;
-    }
-    $text = trim((string) $value);
-    return $text === '' ? null : $text;
-}
-
-$displayName = null;
-$profilePicture = null;
-$faceEmbedding = null;
-$role = null;
-$gender = null;
-$birthday = null;
-$address = null;
-$phone = null;
-$email = null;
-$department = null;
-$openSession = null;
-
-if ($resolvedLogId) {
-    // Fetch profile picture and face_embedding (for Camera Vision)
-    // We fetch these from accounts table FIRST to ensure availability regardless of employees record state.
-    $selectCols = "profile_picture,face_embedding";
-
-    [$s4, $accountRows, $e4] = supabase_request(
-        'GET',
-        "rest/v1/accounts?log_id=eq." . urlencode($resolvedLogId) . "&select=" . $selectCols
-    );
-    if (!$e4 && is_array($accountRows) && count($accountRows) > 0) {
-        $account = $accountRows[0];
-        $profilePicture = normalize_value($account['profile_picture'] ?? null);
-        
-        $rawEmbedding = $account['face_embedding'] ?? null;
-        if ($rawEmbedding !== null) {
-            if (is_array($rawEmbedding) || is_object($rawEmbedding)) {
-                $faceEmbedding = json_encode($rawEmbedding);
-            } else if (is_string($rawEmbedding)) {
-                $trimmed = trim($rawEmbedding);
-                if (strpos($trimmed, '[') === 0) {
-                    $faceEmbedding = $trimmed;
-                } else {
-                    $faceEmbedding = $trimmed;
-                }
-            }
-        }
-    }
-
-    // Now get basic employee data
-    $employeeQuery = "rest/v1/employees?log_id=eq." . urlencode($resolvedLogId) . "&select=emp_id,name,role,dept_id";
-
-    [$s2, $empRows, $e2] = supabase_request(
-        'GET',
-        $employeeQuery
-    );
-
-    if (!$e2 && is_array($empRows) && count($empRows) > 0) {
-        $employee = $empRows[0];
-        $empId = $employee['emp_id'] ?? null;
-
-        $displayName = normalize_value($employee['name'] ?? null);
-        $role = normalize_value($employee['role'] ?? null);
-        $deptId = $employee['dept_id'] ?? null;
-
-        // Check for ANY open attendance session
-        if ($empId) {
-            $attQuery = "rest/v1/attendance?emp_id=eq." . urlencode($empId) . "&date=eq." . date('Y-m-d') . "&timeout=is.null&order=att_id.desc&limit=1&select=att_id,timein,date";
-            [$sAtt, $attRows, $eAtt] = supabase_request('GET', $attQuery);
-
-            if (!$eAtt && is_array($attRows) && count($attRows) > 0) {
-                $openSession = [
-                    'att_id' => $attRows[0]['att_id'],
-                    'timein' => $attRows[0]['timein'],
-                    'date' => $attRows[0]['date']
-                ];
-            }
-        }
-
-        // Get department name
-        $department = null;
-        if ($deptId) {
-            $deptQueries = [
-                "rest/v1/departments?dept_id=eq." . urlencode($deptId) . "&select=name",
-                "rest/v1/department?dept_id=eq." . urlencode($deptId) . "&select=name"
-            ];
-
-            foreach ($deptQueries as $query) {
-                [$s3, $deptRows, $e3] = supabase_request('GET', $query);
-                if (!$e3 && is_array($deptRows) && count($deptRows) > 0) {
-                    $department = normalize_value($deptRows[0]['name'] ?? null);
-                    break;
-                }
-            }
-        }
-    }
-}
-
-$jsonResponse = json_encode([
-    'ok' => true,
-    'user' => [
-        'log_id' => $resolvedLogId,
-        'username' => $resolvedUsername,
-        'name' => $displayName,
-        'profile_picture' => $profilePicture,
-        'face_embedding' => $faceEmbedding,
-        'role' => $role,
-        'department' => $department,
-        'open_session' => $openSession,
-    ],
-    'debug' => [
-        'resolved_log_id' => $resolvedLogId,
-        'has_account_row' => !empty($accountRows),
-        'fetch_error' => $e4,
-        'raw_embedding_type' => isset($account) ? gettype($account['face_embedding'] ?? null) : 'no_account'
-    ]
-]);
-
+// hris-system's /api/kiosk/resolve response already matches this endpoint's
+// contract (ok, user.{log_id,username,name,profile_picture,face_embedding,role,department,open_session}).
+$jsonResponse = json_encode($hData);
 header('Content-Length: ' . strlen($jsonResponse));
 echo $jsonResponse;
 

@@ -311,153 +311,59 @@ if ($isIntern) {
     exit;
 }
 
-// Resolve log_id (user_id) to emp_id via employees table
-[$status, $empData, $err] = supabase_request(
-    'GET',
-    "rest/v1/employees?log_id=eq." . urlencode($userId) . "&select=emp_id"
-);
-if ($err) {
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Database error', 'detail' => $err]);
-    exit;
-}
-if ($status !== 200 || !is_array($empData) || count($empData) === 0) {
-    http_response_code(404);
-    echo json_encode(['ok' => false, 'message' => 'Employee not found for this user']);
-    exit;
-}
-$emp_id = (int)$empData[0]['emp_id'];
-$nowTime = null;
+// Employee path: proxy clock_in/clock_out to hris-system's kiosk API.
+$today = $providedDate !== '' ? $providedDate : date('Y-m-d');
+$nowTime = $providedTime !== '' ? $providedTime : date('H:i:s');
 
-// Use provided date/time for offline sync, otherwise use current
-if ($providedDate !== '' && $providedTime !== '') {
-    $today = $providedDate;
-    $nowTime = $providedTime;
-    error_log("Using provided date/time for offline sync: {$today} {$nowTime}");
-} else {
-    $today = date('Y-m-d');
-    $nowTime = date('H:i:s');
-    error_log("Using current date/time: {$today} {$nowTime}");
-}
-
-if ($action === 'clock_in') {
-    // Check if already clocked in today (open session)
-    [$status, $rows, $err] = supabase_request(
-        'GET',
-        "rest/v1/attendance?emp_id=eq.{$emp_id}&date=eq.{$today}&timeout=is.null&order=att_id.desc&limit=1&select=att_id,timein,timeout,date"
-    );
-    if ($err) {
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'message' => 'Database error', 'detail' => $err]);
-        exit;
-    }
-    if ($status === 200 && is_array($rows) && count($rows) > 0) {
-        $row = $rows[0];
-        $existingTimein = $row['timein'] ?? null;
-        echo json_encode([
-            'ok' => true,
-            'message' => 'Already clocked in',
-            'emp_id' => $emp_id,
-            'date' => $today,
-            'timein' => $existingTimein,
-        ]);
-        exit;
-    }
-
-    // Allow multiple clock-ins per day - always create new record
-    error_log("Attempting to insert attendance record for emp_id: {$emp_id}, timein: {$nowTime}, date: {$today}");
-    $insertData = [
-        'emp_id' => $emp_id,
-        'timein' => $nowTime,
-        'timeout' => null,
-        'date'   => $today,
-        'latitude_in' => $lat,
-        'longitude_in' => $lng,
-        'actual_radius_in' => $radius,
-    ];
-    
-    [$status, $result, $err] = supabase_insert('attendance', $insertData);
-    error_log("Insert result - Status: {$status}, Error: " . ($err ?: 'none') . ", Result: " . json_encode($result));
-
-
-    if ($err) {
-        error_log("Database error during clock-in: {$err}");
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'message' => 'Failed to record clock-in', 'detail' => $err]);
-        exit;
-    }
-    if ($status < 200 || $status >= 300) {
-        error_log("HTTP error during clock-in: Status {$status}, Result: " . json_encode($result));
-        http_response_code($status);
-        echo json_encode([
-            'ok' => false,
-            'message' => 'Failed to record clock-in',
-            'status' => $status,
-            'detail' => $result,
-        ]);
-        exit;
-    }
-    echo json_encode([
-        'ok' => true,
-        'message' => 'Clock-in recorded',
-        'emp_id' => $emp_id,
-        'date' => $today,
-        'timein' => $nowTime,
-    ]);
-    exit;
-}
-
-// clock_out: find the MOST RECENT open session for this emp (timeout IS NULL), then set timeout
-error_log("Attempting clock-out for emp_id: {$emp_id}");
-[$status, $rows, $err] = supabase_request(
-    'GET',
-    "rest/v1/attendance?emp_id=eq.{$emp_id}&timeout=is.null&order=att_id.desc&limit=1&select=att_id,date"
-);
-error_log("Clock-out query result - Status: {$status}, Rows found: " . count($rows ?? []) . ", Error: " . ($err ?: 'none'));
-
-if ($err) {
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Database error', 'detail' => $err]);
-    exit;
-}
-if ($status !== 200 || !is_array($rows) || count($rows) === 0) {
-    error_log("No open clock-in found for clock-out - emp_id: {$emp_id}, date: {$today}");
-    http_response_code(400);
-    echo json_encode(['ok' => false, 'message' => 'No clock-in found for today to clock out']);
-    exit;
-}
-$att_id = (int)$rows[0]['att_id'];
-error_log("Found open attendance record att_id: {$att_id} for clock-out");
-
-$patchData = [
-    'timeout' => $nowTime,
-    'latitude_out' => $lat,
-    'longitude_out' => $lng,
-    'actual_radius_out' => $radius,
+$hrisPayload = [
+    'employeeNo' => $userId,
+    'action' => $action === 'clock_in' ? 'IN' : 'OUT',
 ];
-[$status, $result, $err] = supabase_request(
-    'PATCH',
-    "rest/v1/attendance?att_id=eq.{$att_id}",
-    $patchData,
-    ['Prefer: return=representation']
-);
-error_log("Clock-out update result - Status: {$status}, Error: " . ($err ?: 'none') . ", Result: " . json_encode($result));
+if ($providedDate !== '' && $providedTime !== '') {
+    // The kiosk queues offline punches as the tablet's local wall-clock time
+    // (Philippine time). Send the offset explicitly so HRIS doesn't have to
+    // guess the zone from its own server settings.
+    $hrisPayload['timestamp'] = "{$providedDate}T{$providedTime}+08:00";
+}
+if ($lat !== null && $lat !== '' && is_numeric($lat)) {
+    $hrisPayload['latitude'] = (float) $lat;
+}
+if ($lng !== null && $lng !== '' && is_numeric($lng)) {
+    $hrisPayload['longitude'] = (float) $lng;
+}
 
-if ($err) {
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Failed to record clock-out', 'detail' => $err]);
+error_log("[Attendance] Proxying to HRIS: /api/kiosk/punch | Payload: " . json_encode($hrisPayload));
+
+[$hStatus, $hData, $hErr] = hris_kiosk_request('POST', '/api/kiosk/punch', $hrisPayload);
+
+if ($hErr) {
+    error_log("[Attendance] Curl error reaching HRIS: " . $hErr);
+    http_response_code(502);
+    echo json_encode(['ok' => false, 'message' => 'Failed to reach HRIS server: ' . $hErr]);
     exit;
 }
-if ($status < 200 || $status >= 300) {
-    http_response_code($status);
-    echo json_encode(['ok' => false, 'message' => 'Failed to record clock-out', 'status' => $status]);
+
+if ($hStatus !== 200 || !is_array($hData) || !($hData['ok'] ?? false)) {
+    $msg = $hData['message'] ?? 'HRIS record failure';
+
+    // IDEMPOTENCY: If user is already clocked in/out, treat as success for sync purposes
+    // so the offline log can be removed from the queue.
+    if (strpos($msg, 'Already clocked') !== false) {
+        echo json_encode(['ok' => true, 'message' => $msg, 'details' => 'Handled as success for sync idempotency']);
+        exit;
+    }
+
+    error_log("[Attendance] HRIS error response: " . json_encode($hData));
+    http_response_code($hStatus ?: 500);
+    echo json_encode(['ok' => false, 'message' => $msg]);
     exit;
 }
+
 echo json_encode([
     'ok' => true,
-    'message' => 'Clock-out recorded',
-    'emp_id' => $emp_id,
+    'message' => $action === 'clock_in' ? 'Clock-in recorded' : 'Clock-out recorded',
+    'emp_id' => $userId,
     'date' => $today,
-    'timeout' => $nowTime,
+    ($action === 'clock_in' ? 'timein' : 'timeout') => $nowTime,
 ]);
 exit;
