@@ -74,15 +74,16 @@ function fetchUserFaceData(string $userId, string $engine = '') {
         ];
     }
 
-    // Fetch face_embedding (Camera Vision)
-    $selectCols = "profile_picture,username,log_id,face_embedding,face_embedding_large";
-    
-    [$status, $data, $err] = supabase_request('GET', "rest/v1/accounts?log_id=eq." . urlencode($userId) . "&select=" . $selectCols);
-    if ($err) return [null, 'Database connection error: ' . $err];
-    if ($status !== 200 || !is_array($data) || count($data) === 0) return [null, 'User not found'];
-    
-    $account = $data[0];
-    
+    // Fetch face_embedding via hris-system's kiosk API instead of Supabase
+    // (mirrors the employee path already migrated in resolve_qr.php).
+    [$hStatus, $hData, $hErr] = hris_kiosk_request('GET', '/api/kiosk/resolve?employeeNo=' . urlencode($userId));
+    if ($hErr) return [null, 'Database connection error: ' . $hErr];
+    if ($hStatus !== 200 || !is_array($hData) || !($hData['ok'] ?? false) || !isset($hData['user'])) {
+        return [null, $hData['message'] ?? 'User not found'];
+    }
+
+    $account = $hData['user'];
+
     $faceEmbedding = null;
     $rawEmbedding = $account['face_embedding'] ?? null;
     if (is_array($rawEmbedding) || is_object($rawEmbedding)) {

@@ -53,7 +53,55 @@ $supabaseServiceKey = getenv('SUPABASE_SERVICE_ROLE_KEY');
 define('SUPABASE_URL', $supabaseUrl);
 define('SUPABASE_API_KEY', $supabaseServiceKey ?: $supabaseAnonKey);
 
-define('KIOSK_MODE', 'intern'); // 'employee' or 'intern'
+// 'employee' or 'intern'. Was hardcoded to 'intern' (the only working path while
+// Supabase was unconfigured); now env-driven so a single kiosk can route employees
+// to hris-system and interns to IMS based on QR content (see resolve_qr.php).
+define('KIOSK_MODE', getenv('KIOSK_MODE') ?: 'employee');
+
+// --- HRIS (hris-system) config, used for the 'employee' path (non-intern) ---
+define('HRIS_URL', rtrim(getenv('HRIS_URL') ?: 'http://192.168.10.221:4000', '/'));
+define('HRIS_KIOSK_KEY', getenv('HRIS_KIOSK_KEY') ?: '');
+
+/**
+ * HRIS kiosk API helper: calls hris-system's /api/kiosk/* routes,
+ * authenticated with the shared X-Kiosk-Key header (mirrors supabase_request()).
+ */
+function hris_kiosk_request(string $method, string $path, ?array $body = null): array
+{
+    $url = HRIS_URL . $path;
+    $ch = curl_init($url);
+
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST => strtoupper($method),
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'X-Kiosk-Key: ' . HRIS_KIOSK_KEY,
+        ],
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 10,
+    ]);
+
+    if ($body !== null) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+    }
+
+    $responseBody = curl_exec($ch);
+    $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlErr = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlErr) {
+        return [0, null, $curlErr];
+    }
+
+    $decoded = json_decode($responseBody, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return [$statusCode, $responseBody, null];
+    }
+
+    return [$statusCode, $decoded, null];
+}
 
 /**
  * Connect to MySQL database 'tdt_ims' using mysqli
